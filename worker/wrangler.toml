@@ -2,7 +2,6 @@ name = "speechify-tts"
 main = "src/index.ts"
 compatibility_date = "2024-06-01"
 
-# R2 cache — uncomment after activating R2 in Cloudflare dashboard
-# [[r2_buckets]]
-# binding = "TTS_CACHE"
-# bucket_name = "speechify-tts-cache"
+[[r2_buckets]]
+binding = "TTS_CACHE"
+bucket_name = "speechify-tts-cache"
