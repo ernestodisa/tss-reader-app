@@ -7,6 +7,7 @@ import { chunkParagraph } from '../agents/chunker';
 import { decodeAudio } from '../lib/audio-utils';
 import { VoiceSelector } from './VoiceSelector';
 import { SpeedControl } from './SpeedControl';
+import { prefetchNext } from '../lib/prefetch';
 import type { ExtractedDoc, Paragraph } from '../types';
 
 interface PlayerBarProps {
@@ -70,6 +71,8 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       playerAgent.load(paragraph.id, audio, allTimings);
       setParagraphTiming(paragraph.id, { status: 'ready', timings: allTimings });
       playerAgent.play();
+      // Start prefetching next paragraphs (best-effort, fire-and-forget)
+      prefetchNext(doc).catch(() => { /* silent fail — prefetch is best-effort */ });
     }
 
     setBuffering(false);
@@ -99,6 +102,8 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   const handleNext = () => {
     playerAgent.fullStop();
     nextParagraph(doc);
+    // Kick off prefetch immediately for the new position
+    prefetchNext(doc).catch(() => {});
     // Auto-play next paragraph
     const chapter = doc.chapters[usePlaybackStore.getState().chapterIndex];
     const paragraph = chapter?.paragraphs[usePlaybackStore.getState().paragraphIndex];
@@ -110,6 +115,8 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   const handlePrev = () => {
     playerAgent.fullStop();
     prevParagraph(doc);
+    // Kick off prefetch immediately for the new position
+    prefetchNext(doc).catch(() => {});
     const chapter = doc.chapters[usePlaybackStore.getState().chapterIndex];
     const paragraph = chapter?.paragraphs[usePlaybackStore.getState().paragraphIndex];
     if (paragraph) {
