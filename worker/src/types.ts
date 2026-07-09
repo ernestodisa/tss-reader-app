@@ -14,5 +14,5 @@ export interface TTSEngine {
 }
 
 export interface Env {
-  TTS_CACHE: R2Bucket;
+  TTS_CACHE?: R2Bucket;
 }

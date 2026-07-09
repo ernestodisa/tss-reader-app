@@ -39,8 +39,13 @@ export default {
     // Generate cache key
     const cacheKey = `${hashKey(text)}::${voiceId}::${speed}`;
 
-    // Check R2 cache
-    const cached = await getCached(env, cacheKey);
+    // Check R2 cache (if available)
+    let cached = null;
+    try {
+      cached = await getCached(env, cacheKey);
+    } catch {
+      // R2 not bound — skip cache
+    }
     if (cached) {
       return new Response(cached.audio, {
         status: 200,
@@ -59,8 +64,12 @@ export default {
       const engine = getEngine('edge');
       const result = await engine.synthesize(text, voiceId, speed || 1.0);
 
-      // Cache in R2
-      await putCache(env, cacheKey, result.audio, JSON.stringify(result.words), result.durationMs);
+      // Cache in R2 (if available)
+      try {
+        await putCache(env, cacheKey, result.audio, JSON.stringify(result.words), result.durationMs);
+      } catch {
+        // R2 not bound — skip cache
+      }
 
       return new Response(result.audio, {
         status: 200,
