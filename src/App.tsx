@@ -1,10 +1,26 @@
-function App() {
+import { ImportDropzone } from './components/ImportDropzone';
+import { Library } from './components/Library';
+import { ReaderView } from './components/ReaderView';
+import { useDocument } from './hooks/useDocument';
+
+export default function App() {
+  const { doc } = useDocument();
+
   return (
     <div className="app">
-      <h1>Speechify Clone</h1>
-      <p>Upload a PDF or ePub to get started.</p>
+      <header className="app-header">
+        <h1>📖 Reader</h1>
+      </header>
+      <main className="app-main">
+        {doc ? (
+          <ReaderView />
+        ) : (
+          <>
+            <ImportDropzone />
+            <Library />
+          </>
+        )}
+      </main>
     </div>
-  )
+  );
 }
-
-export default App
