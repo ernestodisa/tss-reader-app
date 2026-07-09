@@ -1,0 +1,31 @@
+# Sample Text for E2E Testing
+
+This is a sample document used for end-to-end testing of the Speechify Clone PWA.
+
+## Chapter 1: The Beginning
+
+It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness. The sun rose over the quiet village, casting long shadows across the cobblestone streets. Birds sang their morning songs while the townspeople began their daily routines.
+
+The old clock tower struck seven, its bells echoing through the valley. Children ran to school with backpacks bouncing, and merchants opened their shops one by one. The aroma of fresh bread drifted from the bakery on the corner.
+
+## Chapter 2: The Discovery
+
+Deep in the forest, far from the village, a young explorer stumbled upon something remarkable. Hidden beneath centuries of moss and ivy lay a stone door, carved with symbols no one had seen before. The explorer's heart raced as they reached out to touch the ancient markings.
+
+"Could this be the lost entrance?" they whispered to themselves. The stone felt warm despite the cool morning air. Something was definitely different about this place.
+
+## Chapter 3: The Journey Forward
+
+With a deep breath, the explorer pushed against the stone door. It moved surprisingly easily, sliding open to reveal a staircase descending into darkness. Tiny crystals embedded in the walls began to glow, illuminating the path ahead.
+
+Step by step, the explorer descended. The air grew warmer and carried the faint scent of flowers. At the bottom of the staircase, a vast underground garden stretched out before them, filled with plants that seemed to emit their own soft light.
+
+---
+
+This file contains 3 chapters with multiple paragraphs suitable for testing:
+- Text-to-speech playback across paragraphs
+- Navigation between chapters and paragraphs
+- Voice selection with different languages
+- Speed control variations
+- Karaoke word highlighting
+- Cache and prefetch behavior
