@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { usePlayback } from '../hooks/usePlayback';
 import { usePlaybackStore } from '../store/playback-store';
+import { useDocumentStore } from '../store/document-store';
 import { playerAgent } from '../agents/player';
 import { fetchTTS } from '../agents/tts-client';
 import { chunkParagraph } from '../agents/chunker';
@@ -85,9 +86,9 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       return;
     }
 
-    // If player already has audio loaded, just resume
+    // If player already has audio loaded, just resume (not play — sourceNode already started)
     if (playerAgent.getCurrentPositionMs() > 0) {
-      playerAgent.play();
+      playerAgent.resume();
       return;
     }
 
@@ -124,16 +125,30 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     }
   };
 
-  // Auto-advance when audio ends
+  // Wire karaoke word tracking + auto-advance when audio ends
   useEffect(() => {
-    playerAgent.setWordChangeCallback(() => {
-      // Word change tracking handled by rAF in playerAgent
+    // BUG FIX #1: wordIndex must be pushed to the store so KaraokeText highlights the active word
+    playerAgent.setWordChangeCallback((wordIndex) => {
+      usePlaybackStore.getState().setWordIndex(wordIndex);
+    });
+
+    // BUG FIX #3: auto-advance to next paragraph when audio finishes
+    playerAgent.setEndCallback(() => {
+      const store = usePlaybackStore.getState();
+      const currentDoc = useDocumentStore.getState().doc || doc;
+      if (!currentDoc) return;
+      store.nextParagraph(currentDoc);
+      const chapter = currentDoc.chapters[usePlaybackStore.getState().chapterIndex];
+      const paragraph = chapter?.paragraphs[usePlaybackStore.getState().paragraphIndex];
+      if (paragraph) {
+        loadAndPlayParagraph(paragraph, store.voiceId, store.speed, store.generationId);
+      }
     });
 
     return () => {
       playerAgent.destroy();
     };
-  }, []);
+  }, [doc]);
 
   return (
     <div className="player-bar">
