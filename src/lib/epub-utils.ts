@@ -1,11 +1,13 @@
 import ePub from 'epubjs';
 import type { Chapter, Paragraph } from '../types';
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 export async function extractEPub(file: File): Promise<{ title: string; author?: string; chapters: Chapter[] }> {
   const arrayBuffer = await file.arrayBuffer();
   const book = ePub(arrayBuffer);
 
-  // Wait for book metadata to load
+  // Wait for book to be fully loaded
   await book.ready;
 
   const title = book.packaging?.metadata?.title || file.name.replace(/\.epub$/i, '');
@@ -13,50 +15,54 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
 
   const chapters: Chapter[] = [];
 
-  // Use book.spine.spineItems — the actual array of spine items
-  // epubjs types are incomplete, cast to access the array
-  const spine = book.spine as unknown as { items: { href: string; load: (fn: typeof book.load) => Promise<Document>; unload: () => void }[] };
-  const spineItems = spine.items || [];
+  // epubjs types are incomplete — cast spine to access spineItems array
+  const spine: any = book.spine;
+  let items: any[] = spine.spineItems || [];
 
-  for (let i = 0; i < spineItems.length; i++) {
-    const item = spineItems[i];
+  // Fallback: try each() method if spineItems is empty
+  if (items.length === 0 && typeof spine.each === 'function') {
+    const collected: any[] = [];
+    spine.each((item: any) => collected.push(item));
+    items = collected;
+  }
 
-    // Skip cover, nav, toc items
+  if (items.length === 0) {
+    book.destroy();
+    return { title, author, chapters };
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     if (!item?.href) continue;
 
     try {
       // item.load() returns a Promise<Document>
-      const doc = await item.load(book.load.bind(book));
+      const doc: Document = await item.load(book.load.bind(book));
       if (!doc) continue;
 
       const body = doc.body || doc.documentElement;
-      const text = body?.textContent || '';
-
-      if (!text.trim()) {
+      if (!body) {
         item.unload();
         continue;
       }
 
-      // Clean up text: remove excessive whitespace, split into paragraphs
-      const cleanText = text
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      // Split by sentence groups (heuristic: 2+ sentences per paragraph)
-      // Try paragraph tags first, fall back to sentence splitting
+      // Try to extract paragraphs from <p> tags first
       const paraElements = doc.querySelectorAll('p, div, h1, h2, h3');
       let paraTexts: string[];
 
       if (paraElements.length > 1) {
-        paraTexts = Array.from(paraElements)
-          .map((el: Element) => el.textContent?.trim() || '')
-          .filter((t: string) => t.length > 2);
+        paraTexts = [];
+        paraElements.forEach((el: any) => {
+          const t = el?.textContent?.trim();
+          if (t && t.length > 2) paraTexts.push(t);
+        });
       } else {
-        // Fall back: split by double newline or period groups
-        paraTexts = cleanText
+        // Fallback: get all text and split by newlines
+        const text = body.textContent || '';
+        paraTexts = text
           .split(/\n+/)
           .map((p: string) => p.trim())
-          .filter((p: string) => p.length > 0);
+          .filter((p: string) => p.length > 2);
       }
 
       if (paraTexts.length === 0) {
@@ -64,22 +70,21 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
         continue;
       }
 
-      const paragraphs: Paragraph[] = paraTexts.map((paraText, j) => ({
+      const paragraphs: Paragraph[] = paraTexts.map((paraText: string, j: number) => ({
         id: `epub-p-${i}-${j}`,
         text: paraText,
         chapterId: `epub-ch-${i}`,
       }));
 
-      if (paragraphs.length > 0) {
-        const chapterTitle = doc.querySelector('h1, h2, h3, title')?.textContent?.trim() || `Capítulo ${i + 1}`;
-        chapters.push({
-          id: `epub-ch-${i}`,
-          title: chapterTitle,
-          paragraphs,
-          index: i + 1,
-          totalCharacters: paragraphs.reduce((sum, p) => sum + p.text.length, 0),
-        });
-      }
+      const chapterTitle = doc.querySelector('h1, h2, h3, title')?.textContent?.trim() || `Capítulo ${i + 1}`;
+
+      chapters.push({
+        id: `epub-ch-${i}`,
+        title: chapterTitle,
+        paragraphs,
+        index: i + 1,
+        totalCharacters: paragraphs.reduce((sum, p) => sum + p.text.length, 0),
+      });
 
       item.unload();
     } catch {
@@ -89,6 +94,5 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
   }
 
   book.destroy();
-
   return { title, author, chapters };
 }
