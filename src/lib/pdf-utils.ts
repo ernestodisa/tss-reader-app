@@ -22,15 +22,17 @@ export async function extractPDF(file: File): Promise<{ title: string; author?: 
     const content = await page.getTextContent();
 
     // Reconstruct paragraphs from text items
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawItems = content.items as any[];
-    const textItems = rawItems
-      .filter((item: any) => 'str' in item && item.transform)
-      .map((item: any) => ({
-        str: item.str as string,
-        y: item.transform[5] as number,
-        x: item.transform[4] as number,
-      }));
+    // pdfjs TextItem has: str, dir, transform, width, height, fontName, hasEOL
+    const textItems = content.items
+      .filter((item) => 'str' in item)
+      .map((item) => {
+        const ti = item as { str: string; transform: number[] };
+        return {
+          str: ti.str,
+          y: ti.transform[5],
+          x: ti.transform[4],
+        };
+      });
 
     const paragraphs = groupIntoParagraphs(textItems, pageNum, globalParaCounter);
     globalParaCounter += paragraphs.length;
