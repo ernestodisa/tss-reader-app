@@ -1,0 +1,117 @@
+import { create } from 'zustand';
+import type { ExtractedDoc, TimingStatus } from '../types';
+
+interface PlaybackStore {
+  // Position
+  chapterIndex: number;
+  paragraphIndex: number;
+  wordIndex: number;
+  positionMs: number;
+
+  // State
+  isPlaying: boolean;
+  isBuffering: boolean;
+
+  // Config
+  voiceId: string;
+  speed: number;
+  generationId: number;
+
+  // Timings
+  timingsByParagraph: Map<string, TimingStatus>;
+
+  // Actions
+  play: () => void;
+  pause: () => void;
+  stop: () => void;
+  setVoice: (id: string) => void;
+  setSpeed: (speed: number) => void;
+  setParagraphTiming: (paragraphId: string, status: TimingStatus) => void;
+  setWordIndex: (index: number) => void;
+  setPositionMs: (ms: number) => void;
+  setBuffering: (buffering: boolean) => void;
+  seekToParagraph: (chapterIndex: number, paragraphIndex: number) => void;
+  nextParagraph: (doc: ExtractedDoc) => void;
+  prevParagraph: (doc: ExtractedDoc) => void;
+  bumpGeneration: () => void;
+}
+
+export const usePlaybackStore = create<PlaybackStore>((set) => ({
+  chapterIndex: 0,
+  paragraphIndex: 0,
+  wordIndex: 0,
+  positionMs: 0,
+  isPlaying: false,
+  isBuffering: false,
+  voiceId: 'es-MX-DaliaNeural',
+  speed: 1.0,
+  generationId: 0,
+  timingsByParagraph: new Map(),
+
+  play: () => set({ isPlaying: true }),
+  pause: () => set({ isPlaying: false }),
+  stop: () => set({ isPlaying: false, positionMs: 0, wordIndex: 0 }),
+
+  setVoice: (id: string) => set((s) => ({
+    voiceId: id,
+    generationId: s.generationId + 1,
+  })),
+
+  setSpeed: (speed: number) => set((s) => ({
+    speed,
+    generationId: s.generationId + 1,
+  })),
+
+  setParagraphTiming: (paragraphId, status) => set((s) => {
+    const newMap = new Map(s.timingsByParagraph);
+    newMap.set(paragraphId, status);
+    return { timingsByParagraph: newMap };
+  }),
+
+  setWordIndex: (index: number) => set({ wordIndex: index }),
+  setPositionMs: (ms: number) => set({ positionMs: ms }),
+  setBuffering: (buffering: boolean) => set({ isBuffering: buffering }),
+
+  seekToParagraph: (chapterIndex: number, paragraphIndex: number) => set((s) => ({
+    chapterIndex,
+    paragraphIndex,
+    wordIndex: 0,
+    positionMs: 0,
+    generationId: s.generationId + 1,
+  })),
+
+  nextParagraph: (doc: ExtractedDoc) => set((s) => {
+    const chapter = doc.chapters[s.chapterIndex];
+    if (s.paragraphIndex < chapter.paragraphs.length - 1) {
+      return { paragraphIndex: s.paragraphIndex + 1, wordIndex: 0, positionMs: 0 };
+    }
+    // Move to next chapter
+    if (s.chapterIndex < doc.chapters.length - 1) {
+      return {
+        chapterIndex: s.chapterIndex + 1,
+        paragraphIndex: 0,
+        wordIndex: 0,
+        positionMs: 0,
+      };
+    }
+    return {}; // End of document
+  }),
+
+  prevParagraph: (doc: ExtractedDoc) => set((s) => {
+    if (s.paragraphIndex > 0) {
+      return { paragraphIndex: s.paragraphIndex - 1, wordIndex: 0, positionMs: 0 };
+    }
+    if (s.chapterIndex > 0) {
+      const prevChapter = doc.chapters[s.chapterIndex - 1];
+      return {
+        chapterIndex: s.chapterIndex - 1,
+        paragraphIndex: prevChapter.paragraphs.length - 1,
+        wordIndex: 0,
+        positionMs: 0,
+      };
+    }
+    return {};
+  }),
+
+  bumpGeneration: () => set((s) => ({ generationId: s.generationId + 1 })),
+}));
