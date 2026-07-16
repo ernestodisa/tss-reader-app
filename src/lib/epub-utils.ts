@@ -36,11 +36,14 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
     if (!item?.href) continue;
 
     try {
-      // item.load() returns a Promise<Document>
-      const doc: Document = await item.load(book.load.bind(book));
+      // item.load() puede devolver un Document O un elemento suelto
+      // (HTMLHtmlElement) según cómo epubjs parseó el capítulo — con
+      // .html (no .xhtml) suele llegar el elemento, sin .body ni
+      // .documentElement. Ambos soportan querySelectorAll/textContent.
+      const doc: any = await item.load(book.load.bind(book));
       if (!doc) continue;
 
-      const body = doc.body || doc.documentElement;
+      const body = doc.body || doc.documentElement || (typeof doc.querySelectorAll === 'function' ? doc : null);
       if (!body) {
         item.unload();
         continue;
