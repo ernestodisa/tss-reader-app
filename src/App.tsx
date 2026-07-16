@@ -1,4 +1,4 @@
-import { ImportDropzone } from './components/ImportDropzone';
+import { AppHeader } from './components/AppHeader';
 import { Library } from './components/Library';
 import { ReaderView } from './components/ReaderView';
 import { useDocument } from './hooks/useDocument';
@@ -8,18 +8,11 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>📖 Reader</h1>
-      </header>
+      <AppHeader />
       <main className="app-main">
-        {doc ? (
-          <ReaderView />
-        ) : (
-          <>
-            <ImportDropzone />
-            <Library />
-          </>
-        )}
+        {/* La biblioteca ya incluye su propio ImportDropzone (spec §Biblioteca);
+            no lo dupliques aquí. */}
+        {doc ? <ReaderView /> : <Library />}
       </main>
     </div>
   );

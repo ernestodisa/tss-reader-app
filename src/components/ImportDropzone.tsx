@@ -3,6 +3,7 @@ import { useDocument } from '../hooks/useDocument';
 import { useLibrary } from '../hooks/useLibrary';
 import { useDocumentStore } from '../store/document-store';
 import { saveDoc } from '../lib/library-docs';
+import '../styles/library.css';
 
 export function ImportDropzone() {
   const { loadDocument, isLoading, error } = useDocument();
@@ -40,7 +41,7 @@ export function ImportDropzone() {
 
   return (
     <div
-      className={`dropzone ${dragActive ? 'active' : ''}`}
+      className={`lib-dropzone ${dragActive ? 'active' : ''}`}
       onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
       onDragLeave={() => setDragActive(false)}
       onDrop={onDrop}
@@ -52,10 +53,18 @@ export function ImportDropzone() {
         style={{ display: 'none' }}
         id="file-input"
       />
-      <label htmlFor="file-input" className="dropzone-label">
-        {isLoading ? 'Procesando...' : 'Arrastra un PDF o ePub aquí'}
+      <label htmlFor="file-input" className="lib-dropzone__circle" aria-hidden="true">
+        +
       </label>
-      {error && <p className="error">{error}</p>}
+      <label htmlFor="file-input" className="lib-dropzone__copy">
+        <span className="lib-dropzone__title">
+          {isLoading ? 'Procesando…' : 'Arrastra un PDF o ePub'}
+        </span>
+        <span className="lib-dropzone__subtitle">
+          se convierte en audiolibro al instante · portada y capítulos se extraen solos
+        </span>
+      </label>
+      {error && <p className="lib-dropzone__error">{error}</p>}
     </div>
   );
 }

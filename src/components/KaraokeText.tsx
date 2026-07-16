@@ -29,14 +29,15 @@ export function KaraokeText({ paragraph, isCurrent = true }: KaraokeTextProps) {
         // Render text between tokens (whitespace)
         const gap = paragraph.text.slice(charCursor, token.charStart);
         charCursor = token.charEnd;
-        const isHighlighted = isActive && token.wordIndex === wordIndex;
+        // Modo Barrido: palabras ya leídas en accent; la actual en accent con
+        // subrayado (box-shadow inset); las no leídas heredan el color del texto.
+        const isCurrentWord = isActive && token.wordIndex === wordIndex;
+        const isReadWord = isActive && token.wordIndex < wordIndex;
+        const cls = `kw${isCurrentWord ? ' kw-current' : isReadWord ? ' kw-read' : ''}`;
         return (
           <span key={token.wordIndex}>
             {gap}
-            <span
-              data-word={token.wordIndex}
-              className={isHighlighted ? 'word-highlight' : 'word'}
-            >
+            <span data-word={token.wordIndex} className={cls}>
               {paragraph.text.slice(token.charStart, token.charEnd)}
             </span>
           </span>

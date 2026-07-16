@@ -1,84 +1,185 @@
+/* ============================================================================
+   Folio — base global (foundation).
+   Tokens y medidas EXACTOS de docs/design/folio-v2-tokens.md (Claude Design).
+   Solo la fundación toca este archivo; cada vista tiene su propio CSS.
+   ============================================================================ */
+
+/* ── Tokens: tema oscuro por defecto ("Modo noche") ───────────────────────── */
 :root {
-  --bg: #1a1a1a;
-  --bg-surface: #2a2a2a;
-  --bg-elevated: #333;
-  --text: #e0e0e0;
-  --text-muted: #888;
-  --accent: #6a8caf;
-  --accent-bright: #8ab4cf;
+  --bg: #151312;
+  --bg2: #1e1b19;
+  --bg3: #292522;
+  --ink: #ece7e1;
+  --muted: #8f877f;
+  --line: #2d2925;
+  --accent: #e8a33d;
+  --accent-ink: #201812;
+
+  /* Aliases legacy: vistas aún no rediseñadas (reader/library/player) usan
+     estos nombres; se mapean a los tokens nuevos para que sigan renderizando.
+     Los agentes de vistas los reemplazarán al reescribir su markup. */
+  --text: var(--ink);
+  --text-muted: var(--muted);
+  --bg-surface: var(--bg2);
+  --bg-elevated: var(--bg3);
+  --accent-bright: var(--accent);
   --error: #e57373;
-  --radius: 8px;
-  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  --radius: 12px;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+
+  --font-ui: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f5f5f5;
-    --bg-surface: #fff;
-    --bg-elevated: #eee;
-    --text: #222;
-    --text-muted: #666;
-    --accent: #4a6a8f;
-    --accent-bright: #6a8ab0;
-    --shadow: 0 2px 8px rgba(0,0,0,0.1);
-  }
+/* ── Tokens: tema claro ("Modo papel") ────────────────────────────────────── */
+:root[data-theme='light'] {
+  --bg: #f5f1ea;
+  --bg2: #fffdf9;
+  --bg3: #eae3d8;
+  --ink: #241f19;
+  --muted: #84796c;
+  --line: #e2dacc;
+  --accent: #9a6200;
+  --accent-ink: #fffaf0;
+
+  --shadow: 0 18px 50px rgba(80, 60, 30, 0.14);
 }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+/* ── Reset mínimo ─────────────────────────────────────────────────────────── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
+  font-size: 15px;
   background: var(--bg);
-  color: var(--text);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background 0.35s, color 0.35s;
 }
 
+/* Utilidad tipográfica serif (texto del libro, títulos). */
+.serif {
+  font-family: var(--font-serif);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* ── Layout raíz ──────────────────────────────────────────────────────────── */
 .app {
-  max-width: 800px;
-  margin: 0 auto;
-  min-height: 100vh;
+  /* Anclado al viewport: el scroll vive DENTRO de cada vista (app-main para
+     la biblioteca, reader-content para el lector), nunca en el body — así el
+     player flotante y el sidebar quedan fijos sin doble scrollbar. */
+  height: 100%;
   display: flex;
   flex-direction: column;
-}
-
-.app-header {
-  padding: 1rem;
-  text-align: center;
-  border-bottom: 1px solid var(--bg-elevated);
-}
-
-.app-header h1 {
-  font-size: 1.5rem;
-  font-weight: 500;
+  background: var(--bg);
 }
 
 .app-main {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 1rem;
-  gap: 1rem;
+  overflow-y: auto;
 }
 
-/* Dropzone */
+/* ── Botones pill reutilizables ───────────────────────────────────────────── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--muted);
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  transition: border-color 0.2s, color 0.2s, background 0.2s, transform 0.15s;
+}
+
+.pill:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.pill-solid {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+.pill-solid:hover {
+  color: var(--accent-ink);
+  filter: brightness(1.05);
+}
+
+.pill-active {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── Waveform del player (decorativo) ─────────────────────────────────────── */
+@keyframes wave {
+  from {
+    transform: scaleY(0.25);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* ── Sliders (volumen, etc.) ──────────────────────────────────────────────── */
+input[type='range'] {
+  accent-color: var(--accent);
+}
+
+/* ============================================================================
+   Compatibilidad transitoria: vistas aún NO rediseñadas.
+   Clases actualizadas a los tokens nuevos; los agentes de vistas las
+   reemplazarán. Sin obsesión por el pixel-perfect (ver spec §Notas).
+   ============================================================================ */
+
+/* Dropzone (placeholder hasta el rediseño de la biblioteca) */
 .dropzone {
-  border: 2px dashed var(--bg-elevated);
-  border-radius: var(--radius);
-  padding: 3rem 2rem;
+  border: 1.5px dashed color-mix(in oklab, var(--accent) 45%, transparent);
+  background: color-mix(in oklab, var(--accent) 6%, var(--bg2));
+  border-radius: 16px;
+  padding: 22px 30px;
   text-align: center;
   transition: border-color 0.2s;
 }
 
 .dropzone.active {
   border-color: var(--accent);
-  background: rgba(106, 140, 175, 0.1);
 }
 
 .dropzone-label {
   cursor: pointer;
   display: block;
-  color: var(--text-muted);
-  font-size: 1.1rem;
+  color: var(--muted);
+  font-size: 1rem;
 }
 
 .error {
@@ -90,11 +191,12 @@ body {
 .library {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  padding: 24px;
 }
 
 .library-empty {
-  color: var(--text-muted);
+  color: var(--muted);
   text-align: center;
   padding: 2rem;
 }
@@ -103,25 +205,27 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--bg-surface);
-  padding: 1rem;
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  padding: 16px 24px;
+  border-radius: 16px;
 }
 
 .book-info h3 {
-  font-size: 1rem;
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 500;
   margin-bottom: 0.25rem;
 }
 
 .book-info p {
-  color: var(--text-muted);
-  font-size: 0.875rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
 }
 
 .badge {
   display: inline-block;
-  background: var(--bg-elevated);
+  background: var(--bg3);
   padding: 0.125rem 0.5rem;
   border-radius: 4px;
   font-size: 0.75rem;
@@ -132,10 +236,15 @@ body {
 .btn-remove {
   background: none;
   border: none;
-  color: var(--error);
+  color: var(--muted);
   cursor: pointer;
   font-size: 1.2rem;
   padding: 0.25rem 0.5rem;
+  transition: color 0.15s;
+}
+
+.btn-remove:hover {
+  color: #e57373;
 }
 
 /* Reader */
@@ -143,65 +252,136 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 
 .reader-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  gap: 0.75rem;
+  padding: 20px 60px 16px;
+  border-bottom: 1px solid var(--line);
 }
 
 .reader-header h2 {
-  font-size: 1.1rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 20px;
 }
 
 .progress {
-  color: var(--text-muted);
-  font-size: 0.875rem;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.reader-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.back-to-library,
+.chapter-toggle,
+.annotations-toggle {
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.back-to-library:hover,
+.chapter-toggle:hover,
+.annotations-toggle:hover {
+  border-color: var(--accent);
 }
 
 .reader-content {
   flex: 1;
   overflow-y: auto;
-  padding: 1rem;
-  background: var(--bg-surface);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  line-height: 1.8;
-  font-size: 1.125rem;
+  padding: 36px 100px 190px;
+  line-height: 1.9;
 }
 
-/* Karaoke */
+/* Cada párrafo es clickeable para reposicionar la lectura. */
+.reader-paragraph {
+  max-width: 680px;
+  margin: 0 auto 26px;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  color: var(--ink);
+  opacity: 0.35;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  transition: opacity 0.15s;
+  outline: none;
+}
+
+.reader-paragraph:hover {
+  opacity: 0.6;
+}
+
+.reader-paragraph:focus-visible {
+  opacity: 0.9;
+  box-shadow: 0 0 0 2px var(--accent);
+  border-radius: 4px;
+}
+
+.reader-paragraph.active {
+  opacity: 1;
+  cursor: default;
+  border-left: 3px solid var(--accent);
+  padding-left: 22px;
+  margin-left: max(-25px, calc((100% - 680px) / 2 - 25px));
+  line-height: 1.95;
+}
+
+/* Karaoke — barrido */
 .karaoke-text {
-  font-size: 1.25rem;
-  line-height: 2;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1.95;
 }
 
 .word {
-  transition: background-color 0.1s;
-  border-radius: 2px;
+  border-radius: 4px;
+  transition: all 0.18s;
 }
 
 .word-highlight {
-  background: var(--accent-bright);
-  color: var(--bg);
-  border-radius: 2px;
-  transition: background-color 0.05s;
+  color: var(--accent);
+  box-shadow: inset 0 -2px var(--accent);
+  border-radius: 4px;
 }
 
-/* Player Bar */
+/* Player Bar (placeholder hasta rediseño del player) */
 .player-bar {
   position: sticky;
   bottom: 0;
-  background: var(--bg-surface);
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--bg2) 88%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--line);
+  padding: 12px 20px;
+  border-radius: 999px;
   box-shadow: var(--shadow);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
+  margin: 0 24px 16px;
 }
 
 .player-controls {
@@ -210,9 +390,9 @@ body {
 }
 
 .player-controls button {
-  background: var(--bg-elevated);
-  border: none;
-  color: var(--text);
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  color: var(--ink);
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -221,11 +401,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s;
 }
 
 .player-controls button:hover:not(:disabled) {
-  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .player-controls button:disabled {
@@ -240,11 +420,11 @@ body {
 }
 
 .voice-selector {
-  background: var(--bg-elevated);
-  color: var(--text);
-  border: none;
+  background: var(--bg3);
+  color: var(--ink);
+  border: 1px solid var(--line);
   padding: 0.5rem;
-  border-radius: var(--radius);
+  border-radius: 999px;
   cursor: pointer;
 }
 
@@ -254,81 +434,19 @@ body {
 }
 
 .speed-control button {
-  background: var(--bg-elevated);
-  border: none;
-  color: var(--text-muted);
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  color: var(--muted);
   padding: 0.25rem 0.5rem;
-  border-radius: 4px;
+  border-radius: 999px;
   cursor: pointer;
   font-size: 0.75rem;
 }
 
 .speed-control button.active {
   background: var(--accent);
-  color: var(--bg);
-}
-
-/* ── Reader: capítulo completo con párrafos clickeables (Tarea D) ───────── */
-.reader-header {
-  gap: 0.75rem;
-}
-
-.back-to-library,
-.chapter-toggle {
-  background: var(--bg-elevated);
-  border: none;
-  color: var(--text);
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 1.1rem;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s;
-}
-
-.back-to-library:hover,
-.chapter-toggle:hover {
-  background: var(--accent);
-}
-
-.reader-header h2 {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Cada párrafo es clickeable para reposicionar la lectura. */
-.reader-paragraph {
-  margin: 0 0 1rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius);
-  cursor: pointer;
-  color: var(--text-muted);
-  transition: background-color 0.15s, color 0.15s;
-  outline: none;
-}
-
-.reader-paragraph:hover {
-  background: var(--bg-elevated);
-  color: var(--text);
-}
-
-.reader-paragraph:focus-visible {
-  box-shadow: 0 0 0 2px var(--accent-bright);
-}
-
-/* El párrafo actual se lee en color pleno y con una guía a la izquierda. */
-.reader-paragraph.active {
-  color: var(--text);
-  cursor: default;
-  border-left: 3px solid var(--accent-bright);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
 }
 
 /* ── Índice de capítulos (drawer) ───────────────────────────────────────── */
@@ -343,7 +461,8 @@ body {
 .chapter-list {
   width: min(340px, 85vw);
   height: 100%;
-  background: var(--bg-surface);
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
@@ -352,8 +471,12 @@ body {
 }
 
 @keyframes chapter-list-in {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 .chapter-list-header {
@@ -361,7 +484,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 1rem;
-  border-bottom: 1px solid var(--bg-elevated);
+  border-bottom: 1px solid var(--line);
 }
 
 .chapter-list-header h3 {
@@ -371,7 +494,7 @@ body {
 .chapter-list-close {
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--muted);
   cursor: pointer;
   font-size: 1rem;
   padding: 0.25rem 0.5rem;
@@ -379,8 +502,8 @@ body {
 }
 
 .chapter-list-close:hover {
-  color: var(--text);
-  background: var(--bg-elevated);
+  color: var(--ink);
+  background: var(--bg3);
 }
 
 .chapter-list-items {
@@ -399,33 +522,34 @@ body {
   text-align: left;
   background: transparent;
   border: none;
-  color: var(--text);
+  color: var(--muted);
   cursor: pointer;
-  padding: 0.6rem 1rem;
-  font-size: 0.9rem;
-  transition: background-color 0.15s;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  transition: background-color 0.15s, color 0.15s;
 }
 
 .chapter-list-item:hover {
-  background: var(--bg-elevated);
+  background: var(--bg3);
 }
 
 .chapter-list-item.active {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--text);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
   font-weight: 600;
 }
 
 .chapter-list-num {
   flex: 0 0 auto;
-  color: var(--text-muted);
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
   font-size: 0.8rem;
   min-width: 1.5rem;
 }
 
 .chapter-list-item.active .chapter-list-num {
-  color: var(--accent-bright);
+  color: var(--accent);
 }
 
 .chapter-list-title {

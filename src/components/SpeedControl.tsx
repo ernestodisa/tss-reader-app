@@ -1,21 +1,39 @@
 import { usePlayback } from '../hooks/usePlayback';
 
-const SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+const STEP = 0.25;
+const MIN = 0.5;
+const MAX = 2;
+
+// "1×", "1.25×", "1.5×" — sin ceros colgantes.
+function formatSpeed(s: number): string {
+  return `${parseFloat(s.toFixed(2))}×`;
+}
 
 export function SpeedControl() {
   const { speed, setSpeed } = usePlayback();
 
+  const dec = () => setSpeed(Math.max(MIN, parseFloat((speed - STEP).toFixed(2))));
+  const inc = () => setSpeed(Math.min(MAX, parseFloat((speed + STEP).toFixed(2))));
+
   return (
-    <div className="speed-control">
-      {SPEEDS.map((s) => (
-        <button
-          key={s}
-          className={speed === s ? 'active' : ''}
-          onClick={() => setSpeed(s)}
-        >
-          {s}x
-        </button>
-      ))}
+    <div className="fp-speed">
+      <button
+        className="fp-speed-btn"
+        onClick={dec}
+        disabled={speed <= MIN}
+        aria-label="Reducir velocidad"
+      >
+        −
+      </button>
+      <span className="fp-speed-label" aria-live="polite">{formatSpeed(speed)}</span>
+      <button
+        className="fp-speed-btn"
+        onClick={inc}
+        disabled={speed >= MAX}
+        aria-label="Aumentar velocidad"
+      >
+        +
+      </button>
     </div>
   );
 }

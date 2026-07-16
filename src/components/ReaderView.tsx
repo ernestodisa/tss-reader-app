@@ -4,7 +4,9 @@ import { usePlayback } from '../hooks/usePlayback';
 import { usePlaybackStore } from '../store/playback-store';
 import { useDocumentStore } from '../store/document-store';
 import { useLibraryStore } from '../store/library-store';
+import { useAnnotationsStore } from '../store/annotations-store';
 import { playerAgent } from '../agents/player';
+import '../styles/reader.css';
 import { KaraokeText } from './KaraokeText';
 import { ChapterList } from './ChapterList';
 import { PlayerBar } from './PlayerBar';
@@ -125,12 +127,22 @@ export function ReaderView() {
     setShowChapters(false);
   }, []);
 
+  // ── Avance por porcentaje (caracteres leídos / totales del libro) ────────
+  const percent = useMemo(() => {
+    if (!doc || doc.totalCharacters <= 0) return 0;
+    let read = 0;
+    for (let c = 0; c < chapterIndex; c++) read += doc.chapters[c]?.totalCharacters ?? 0;
+    const paras = doc.chapters[chapterIndex]?.paragraphs ?? [];
+    for (let p = 0; p < paragraphIndex && p < paras.length; p++) read += paras[p].text.length;
+    return Math.min(100, Math.round((read / doc.totalCharacters) * 100));
+  }, [doc, chapterIndex, paragraphIndex]);
+
   // Persiste el progreso de lectura en la biblioteca (lastRead* + updatedAt) para
   // que reabrir el libro y la sincronización entre dispositivos retomen la posición.
   useEffect(() => {
     if (!bookId) return;
-    useLibraryStore.getState().updateProgress(bookId, chapterIndex, paragraphIndex);
-  }, [bookId, chapterIndex, paragraphIndex]);
+    useLibraryStore.getState().updateProgress(bookId, chapterIndex, paragraphIndex, percent);
+  }, [bookId, chapterIndex, paragraphIndex, percent]);
 
   // ── Regreso a la biblioteca ───────────────────────────────────────────────
   const closeReader = useCallback(() => {
@@ -149,22 +161,13 @@ export function ReaderView() {
     return () => window.removeEventListener('popstate', onPopState);
   }, [doc, closeReader]);
 
-  // El botón ← consume el estado apilado (dispara popstate → closeReader),
-  // así el historial queda igual que si el usuario hubiera usado "atrás".
-  const handleBack = useCallback(() => {
-    if (window.history.state?.reader) window.history.back();
-    else closeReader();
-  }, [closeReader]);
-
-  // ── Avance por porcentaje (caracteres leídos / totales del libro) ────────
-  const percent = useMemo(() => {
-    if (!doc || doc.totalCharacters <= 0) return 0;
-    let read = 0;
-    for (let c = 0; c < chapterIndex; c++) read += doc.chapters[c]?.totalCharacters ?? 0;
-    const paras = doc.chapters[chapterIndex]?.paragraphs ?? [];
-    for (let p = 0; p < paragraphIndex && p < paras.length; p++) read += paras[p].text.length;
-    return Math.min(100, Math.round((read / doc.totalCharacters) * 100));
-  }, [doc, chapterIndex, paragraphIndex]);
+  // ── Conteo de anotaciones (marcadores + notas) para el botón "Notas · N" ──
+  const annotationCount = useAnnotationsStore((s) =>
+    bookId
+      ? s.bookmarks.filter((b) => b.bookId === bookId).length +
+        s.notes.filter((n) => n.bookId === bookId).length
+      : 0,
+  );
 
   if (!doc) return null;
   if (!chapter) return <p>Capítulo no encontrado</p>;
@@ -174,87 +177,100 @@ export function ReaderView() {
 
   return (
     <div className="reader-view">
-      <div className="reader-header">
-        <button
-          type="button"
-          className="back-to-library"
-          onClick={handleBack}
-          aria-label="Volver a la biblioteca"
-          title="Volver a la biblioteca"
-        >
-          ←
-        </button>
-        <button
-          type="button"
-          className="chapter-toggle"
-          onClick={() => setShowChapters((v) => !v)}
-          aria-label="Índice de capítulos"
-          aria-expanded={showChapters}
-          title="Índice de capítulos"
-        >
-          ☰
-        </button>
-        <h2>{chapter.title}</h2>
-        <span className="progress">
-          {percent}% · {chapterIndex + 1}/{doc.chapters.length} · {paragraphIndex + 1}/{total}
-        </span>
-        <div className="reader-header-actions">
-          {bookId && <BookmarkButton bookId={bookId} />}
-          {bookId && (
-            <button
-              type="button"
-              className="annotations-toggle"
-              onClick={() => setShowAnnotations((v) => !v)}
-              aria-label="Marcadores y notas"
-              aria-expanded={showAnnotations}
-              title="Marcadores y notas"
-            >
-              🔖
-            </button>
-          )}
-          <ExportButton />
-        </div>
-      </div>
-
-      <div className="reader-content" ref={scrollRef} onScroll={handleScroll}>
-        {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden="true" />}
-        {paragraphs.slice(start, end).map((p, k) => {
-          const i = start + k;
-          const isActivePar = i === paragraphIndex;
-          return (
-            <div
-              key={p.id}
-              ref={isActivePar ? activeRef : undefined}
-              className={`reader-paragraph${isActivePar ? ' active' : ''}`}
-              role="button"
-              tabIndex={0}
-              aria-current={isActivePar ? 'true' : undefined}
-              onClick={() => handleParagraphClick(i)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleParagraphClick(i);
-                }
-              }}
-            >
-              {isActivePar ? <KaraokeText paragraph={p} isCurrent /> : p.text}
-            </div>
-          );
-        })}
-        {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden="true" />}
-      </div>
-
-      {showChapters && (
+      <div className="reader-body">
         <ChapterList
           chapters={doc.chapters}
           currentIndex={chapterIndex}
+          open={showChapters}
           onSelect={handleChapterSelect}
           onClose={() => setShowChapters(false)}
         />
-      )}
+
+        <div className="reader-main">
+          <div className="reader-chapter-header">
+            <div className="reader-chapter-heading">
+              <button
+                type="button"
+                className="chapter-drawer-toggle"
+                onClick={() => setShowChapters((v) => !v)}
+                aria-label="Índice de capítulos"
+                aria-expanded={showChapters}
+                title="Índice de capítulos"
+              >
+                ☰
+              </button>
+              <div>
+                <div className="reader-chapter-kicker">Capítulo {chapterIndex + 1}</div>
+                <h2 className="reader-chapter-title">{chapter.title}</h2>
+              </div>
+            </div>
+
+            <div className="reader-chapter-actions">
+              <span className="reader-progress">
+                {percent}% · Cap. {chapterIndex + 1}/{doc.chapters.length} · párr.{' '}
+                {paragraphIndex + 1}/{total}
+              </span>
+              {bookId && <BookmarkButton bookId={bookId} />}
+              {bookId && (
+                <button
+                  type="button"
+                  className="reader-notes-btn"
+                  onClick={() => setShowAnnotations((v) => !v)}
+                  aria-label="Marcadores y notas"
+                  aria-expanded={showAnnotations}
+                  title="Marcadores y notas"
+                >
+                  Notas · {annotationCount}
+                </button>
+              )}
+              <ExportButton />
+            </div>
+          </div>
+
+          <div className="reader-content" ref={scrollRef} onScroll={handleScroll}>
+            <div className="reader-column">
+              {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden="true" />}
+              {paragraphs.slice(start, end).map((p, k) => {
+                const i = start + k;
+                const isActivePar = i === paragraphIndex;
+                return (
+                  <div
+                    key={p.id}
+                    ref={isActivePar ? activeRef : undefined}
+                    className={`reader-paragraph${isActivePar ? ' active' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-current={isActivePar ? 'true' : undefined}
+                    onClick={() => handleParagraphClick(i)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleParagraphClick(i);
+                      }
+                    }}
+                  >
+                    {isActivePar ? <KaraokeText paragraph={p} isCurrent /> : p.text}
+                  </div>
+                );
+              })}
+              {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden="true" />}
+              <p className="reader-hint">
+                toca un párrafo para saltar ahí · la lectura continúa sola
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {showAnnotations && bookId && (
-        <AnnotationsPanel bookId={bookId} onClose={() => setShowAnnotations(false)} />
+        <>
+          <div
+            className="annotations-overlay"
+            onClick={() => setShowAnnotations(false)}
+            aria-hidden="true"
+          />
+          <AnnotationsPanel bookId={bookId} onClose={() => setShowAnnotations(false)} />
+        </>
       )}
 
       <PlayerBar doc={doc} />

@@ -1,0 +1,548 @@
+/* ============================================================================
+   Folio — Lector (ReaderView, ChapterList, KaraokeText, AnnotationsPanel,
+   BookmarkButton, ExportButton).
+   Medidas y tokens EXACTOS de docs/design/folio-v2-tokens.md §Lector + §Karaoke.
+   Este archivo lo posee el agente del Lector; no tocar otros CSS de área.
+   ============================================================================ */
+
+/* ── Contenedor del lector ────────────────────────────────────────────────── */
+.reader-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* Grid: sidebar de capítulos 250px + columna principal. */
+.reader-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 250px 1fr;
+}
+
+.reader-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── Sidebar de capítulos (desktop) / drawer (móvil) ─────────────────────── */
+.chapter-sidebar {
+  border-right: 1px solid var(--line);
+  padding: 24px 20px;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.chapter-sidebar__title {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 14px 4px;
+}
+
+.chapter-sidebar__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chapter-sidebar__item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  transition: background 0.15s, color 0.15s;
+}
+
+.chapter-sidebar__item:hover {
+  color: var(--ink);
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+}
+
+.chapter-sidebar__item.active {
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chapter-sidebar__num {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  flex: 0 0 auto;
+}
+
+.chapter-sidebar__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Overlay del drawer (solo móvil). */
+.chapter-sidebar-overlay {
+  display: none;
+}
+
+/* ── Header del capítulo ──────────────────────────────────────────────────── */
+.reader-chapter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 60px 16px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.reader-chapter-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.reader-chapter-kicker {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+
+.reader-chapter-title {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 20px;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reader-chapter-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.reader-progress {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Toggle ☰ del drawer — oculto en desktop. */
+.chapter-drawer-toggle {
+  display: none;
+  border: 1px solid var(--line);
+  background: var(--bg3);
+  color: var(--muted);
+  border-radius: 999px;
+  width: 36px;
+  height: 34px;
+  font-size: 15px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.chapter-drawer-toggle:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+/* Pills genéricos del header (Notas, Bookmark, Export comparten la base). */
+.reader-notes-btn {
+  border: 1px solid var(--line);
+  background: var(--bg3);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.reader-notes-btn:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+/* ── BookmarkButton (pill "☆ Marcar" / "★ Marcado") ───────────────────────── */
+.bookmark-button {
+  border: 1px solid var(--line);
+  background: var(--bg3);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.bookmark-button:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.bookmark-button.active {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── ExportButton (pill --bg3 min-width 150; gradiente de progreso) ────────── */
+.export-pill {
+  border: 1px solid var(--line);
+  background: var(--bg3);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 16px;
+  min-width: 150px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+}
+.export-pill:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.export-pill.exporting {
+  border-color: var(--accent);
+  color: var(--ink);
+  cursor: pointer;
+}
+.export-pill-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.export-error {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--error);
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  max-width: 260px;
+  z-index: 5;
+}
+
+/* ── Contenido / párrafos ─────────────────────────────────────────────────── */
+.reader-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 36px 100px 190px;
+}
+
+.reader-column {
+  max-width: 680px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.reader-paragraph {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1.9;
+  color: var(--ink);
+  opacity: 0.35;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.reader-paragraph:hover {
+  opacity: 0.6;
+}
+.reader-paragraph.active {
+  opacity: 1;
+  border-left: 3px solid var(--accent);
+  padding-left: 22px;
+  margin-left: -25px;
+  line-height: 1.95;
+  cursor: default;
+}
+
+.reader-hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+/* ── Karaoke — modo Barrido ───────────────────────────────────────────────── */
+.karaoke-text .kw {
+  border-radius: 4px;
+  transition: all 0.18s;
+}
+.karaoke-text .kw-read {
+  color: var(--accent);
+}
+.karaoke-text .kw-current {
+  color: var(--accent);
+  box-shadow: inset 0 -2px var(--accent);
+}
+
+/* ── Panel de notas (slide-over derecho) ──────────────────────────────────── */
+.annotations-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.28);
+  z-index: 40;
+}
+
+.annotations-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 90vw;
+  background: var(--bg2);
+  border-left: 1px solid var(--line);
+  box-shadow: -20px 0 50px rgba(0, 0, 0, 0.3);
+  padding: 24px;
+  overflow-y: auto;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.annotations-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.annotations-panel-header h3 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 20px;
+  color: var(--ink);
+  margin: 0;
+}
+.annotations-panel-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+.annotations-panel-close:hover {
+  color: var(--ink);
+}
+
+.annotations-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.annotations-section h4 {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0;
+}
+.annotations-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.annotations-add-note-toggle {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+.annotations-empty {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.annotations-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.annotations-item {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.annotations-item-body {
+  flex: 1;
+  text-align: left;
+  border: none;
+  background: var(--bg3);
+  border-radius: 12px;
+  padding: 12px 34px 12px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  transition: background 0.15s;
+}
+.annotations-item-body:hover {
+  background: color-mix(in oklab, var(--accent) 10%, var(--bg3));
+}
+.annotations-item-chapter {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.annotations-item-excerpt {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.annotations-item-note .annotations-item-excerpt {
+  font-style: italic;
+}
+.annotations-item-note-text {
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+.annotations-item-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1;
+}
+.annotations-item-remove:hover {
+  color: var(--error);
+}
+
+.annotations-note-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.annotations-note-input textarea {
+  width: 100%;
+  resize: vertical;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+}
+.annotations-note-input textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.annotations-note-input button {
+  align-self: flex-end;
+  border: none;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.annotations-note-input button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Móvil (<900px): sidebar → drawer ─────────────────────────────────────── */
+@media (max-width: 900px) {
+  .reader-body {
+    grid-template-columns: 1fr;
+  }
+
+  .chapter-drawer-toggle {
+    display: inline-flex;
+  }
+
+  .reader-chapter-header {
+    padding: 16px 20px 14px;
+  }
+
+  .reader-content {
+    padding: 24px 20px 190px;
+  }
+
+  .chapter-sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 250px;
+    max-width: 82vw;
+    z-index: 51;
+    background: var(--bg2);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .chapter-sidebar[data-open='true'] {
+    transform: translateX(0);
+  }
+
+  .chapter-sidebar-overlay {
+    display: block;
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 50;
+  }
+  .chapter-sidebar-overlay[data-open='false'] {
+    display: none;
+  }
+}

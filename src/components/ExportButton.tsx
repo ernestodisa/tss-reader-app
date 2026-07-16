@@ -88,27 +88,32 @@ export function ExportButton() {
   if (state.status === 'exporting') {
     const pct =
       state.total > 0 ? Math.round((state.done / state.total) * 100) : 0;
+    // El fondo del pill es un gradiente de progreso (spec §Lector · Exportar).
+    const background = `linear-gradient(to right, color-mix(in oklab, var(--accent) 30%, var(--bg3)) ${pct}%, var(--bg3) ${pct}%)`;
     return (
-      <div className="export-button exporting">
-        <div className="export-progress">
-          <div className="export-progress-bar" style={{ width: `${pct}%` }} />
-        </div>
-        <span className="export-progress-label">
-          Exportando… {state.done}/{state.total}
-        </span>
-        <button onClick={handleCancel}>Cancelar</button>
-      </div>
+      <button
+        type="button"
+        className="export-pill exporting"
+        style={{ background }}
+        onClick={handleCancel}
+        title="Cancelar exportación"
+        aria-label={`Exportando ${pct}% — clic para cancelar`}
+      >
+        Exportando… {pct}%
+      </button>
     );
   }
 
   return (
-    <div className="export-button">
-      <button onClick={handleExport}>Exportar capítulo a MP3</button>
+    <span className="export-pill-wrap">
+      <button type="button" className="export-pill" onClick={handleExport}>
+        Exportar MP3
+      </button>
       {state.status === 'error' && (
         <span className="export-error" role="alert">
           {state.message}
         </span>
       )}
-    </div>
+    </span>
   );
 }

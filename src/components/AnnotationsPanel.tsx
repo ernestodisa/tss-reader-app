@@ -73,7 +73,7 @@ export function AnnotationsPanel({ bookId, onClose }: AnnotationsPanelProps) {
                 className="annotations-item-body"
                 onClick={() => seekTo(b.chapterIndex, b.paragraphIndex)}
               >
-                <span className="annotations-item-chapter">{chapterTitle(b.chapterIndex)}</span>
+                <span className="annotations-item-chapter">★ {chapterTitle(b.chapterIndex)}</span>
                 <span className="annotations-item-excerpt">{b.excerpt}</span>
               </button>
               <button
@@ -127,7 +127,7 @@ export function AnnotationsPanel({ bookId, onClose }: AnnotationsPanelProps) {
                 onClick={() => seekTo(n.chapterIndex, n.paragraphIndex)}
               >
                 <span className="annotations-item-chapter">{chapterTitle(n.chapterIndex)}</span>
-                <span className="annotations-item-excerpt">{n.excerpt}</span>
+                <span className="annotations-item-excerpt">«{n.excerpt}»</span>
                 <span className="annotations-item-note-text">{n.text}</span>
               </button>
               <button

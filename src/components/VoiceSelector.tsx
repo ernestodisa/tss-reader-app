@@ -1,12 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePlayback } from '../hooks/usePlayback';
 import { AVAILABLE_VOICES, encodeVoiceId, decodeVoiceId } from '../types/tts';
 import type { EngineId, EnginesResponse, RemoteEngineInfo } from '../types/tts';
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787';
 
+// Etiqueta corta para la pill ("Motor ▾") y encabezado de columna del popover.
 const ENGINE_LABELS: Record<EngineId, string> = {
-  edge: 'Edge TTS (gratis)',
+  edge: 'Edge',
+  elevenlabs: 'ElevenLabs',
+  openai: 'OpenAI',
+  playht: 'PlayHT',
+};
+const ENGINE_COL_TITLES: Record<EngineId, string> = {
+  edge: 'Edge TTS · Gratis',
   elevenlabs: 'ElevenLabs',
   openai: 'OpenAI',
   playht: 'PlayHT',
@@ -41,14 +48,27 @@ async function fetchEngines(): Promise<RemoteEngineInfo[]> {
 export function VoiceSelector() {
   const { voiceId, setVoice } = usePlayback();
   const [remoteEngines, setRemoteEngines] = useState<RemoteEngineInfo[] | null>(enginesCache);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (enginesCache) return;
     fetchEngines().then(setRemoteEngines);
   }, []);
 
-  // Codifica el voiceId actual con su motor para que el <select> lo reconozca
-  // entre grupos (si ya viene con prefijo "engine::", se respeta tal cual).
+  // Cerrar el popover al hacer click fuera.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  // Conserva el encoding engine::voiceId del catálogo actual.
   const { engine: currentEngine, voiceId: currentVoiceId } = decodeVoiceId(voiceId);
   const selectedValue = encodeVoiceId(currentEngine, currentVoiceId);
 
@@ -59,21 +79,63 @@ export function VoiceSelector() {
           .map((e) => ({ engine: e.id, voices: e.voices }))
       : [{ engine: 'edge', voices: AVAILABLE_VOICES.filter((v) => v.engine === 'edge') }];
 
+  // Nombre de la voz seleccionada para mostrar en la pill (fallback al id crudo).
+  let selectedName = currentVoiceId;
+  for (const g of groups) {
+    const v = g.voices.find((vv) => vv.id === currentVoiceId);
+    if (v) {
+      selectedName = v.name;
+      break;
+    }
+  }
+
+  const handlePick = (value: string) => {
+    setVoice(value);
+    setOpen(false);
+  };
+
   return (
-    <select
-      value={selectedValue}
-      onChange={(e) => setVoice(e.target.value)}
-      className="voice-selector"
-    >
-      {groups.map((group) => (
-        <optgroup key={group.engine} label={ENGINE_LABELS[group.engine] ?? group.engine}>
-          {group.voices.map((voice) => (
-            <option key={`${group.engine}::${voice.id}`} value={encodeVoiceId(group.engine, voice.id)}>
-              {voice.name} ({voice.language})
-            </option>
+    <div className="fp-voice" ref={rootRef}>
+      <button
+        type="button"
+        className="fp-voice-pill"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        <span className="fp-voice-dot" aria-hidden="true" />
+        <span className="fp-voice-name">{selectedName}</span>
+        <span className="fp-voice-engine">{ENGINE_LABELS[currentEngine] ?? currentEngine} ▾</span>
+      </button>
+
+      {open && (
+        <div className="fp-voice-popover" role="menu">
+          {groups.map((group) => (
+            <div className="fp-voice-col" key={group.engine}>
+              <div className="fp-voice-col-title">
+                {ENGINE_COL_TITLES[group.engine] ?? group.engine}
+              </div>
+              {group.voices.map((voice) => {
+                const value = encodeVoiceId(group.engine, voice.id);
+                const isSel = value === selectedValue;
+                return (
+                  <button
+                    type="button"
+                    key={value}
+                    className={`fp-voice-opt${isSel ? ' selected' : ''}`}
+                    onClick={() => handlePick(value)}
+                    role="menuitemradio"
+                    aria-checked={isSel}
+                  >
+                    <span className="fp-voice-opt-name">{voice.name}</span>
+                    <span className="fp-voice-opt-lang">{voice.language}</span>
+                  </button>
+                );
+              })}
+            </div>
           ))}
-        </optgroup>
-      ))}
-    </select>
+        </div>
+      )}
+    </div>
   );
 }

@@ -48,7 +48,7 @@ export function BookmarkButton({ bookId }: BookmarkButtonProps) {
       aria-label={marked ? 'Quitar marcador de este párrafo' : 'Marcar este párrafo'}
       title={marked ? 'Quitar marcador' : 'Marcar párrafo'}
     >
-      {marked ? '★' : '☆'}
+      {marked ? '★ Marcado' : '☆ Marcar'}
     </button>
   );
 }

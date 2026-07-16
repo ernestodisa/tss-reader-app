@@ -11,6 +11,10 @@ import { SpeedControl } from './SpeedControl';
 import { prefetchNext } from '../lib/prefetch';
 import { setupMediaSession, clearMediaSession } from '../lib/media-session';
 import type { ExtractedDoc, Paragraph, WordTiming } from '../types';
+import '../styles/player.css';
+
+// Alturas de las 10 barras decorativas del waveform (spec §Player flotante).
+const WAVE_BARS = [14, 22, 10, 26, 18, 28, 12, 24, 16, 20];
 
 // Concatenate decoded chunk buffers into a single AudioBuffer so multi-chunk
 // paragraphs play in full and karaoke offsets can be made absolute.
@@ -261,9 +265,10 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   }, [doc]);
 
   return (
-    <div className="player-bar">
-      <div className="player-controls">
+    <div className={`fp-player${isPlaying ? ' is-playing' : ''}`}>
+      <div className="fp-transport">
         <button
+          className="fp-chapbtn"
           onClick={handlePrevChapter}
           disabled={isBuffering || chapterIndex === 0}
           title="Capítulo anterior"
@@ -271,12 +276,13 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         >
           Cap −
         </button>
-        <button onClick={handlePrev} disabled={isBuffering} title="Párrafo anterior" aria-label="Párrafo anterior">⏮</button>
-        <button onClick={handlePlayPause} disabled={isBuffering} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
-          {isBuffering ? '⏳' : isPlaying ? '⏸' : '▶'}
+        <button className="fp-round" onClick={handlePrev} disabled={isBuffering} title="Párrafo anterior" aria-label="Párrafo anterior">⏮</button>
+        <button className="fp-play" onClick={handlePlayPause} disabled={isBuffering} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
+          {isBuffering ? '⏳' : isPlaying ? '❚❚' : '▶'}
         </button>
-        <button onClick={handleNext} disabled={isBuffering} title="Párrafo siguiente" aria-label="Párrafo siguiente">⏭</button>
+        <button className="fp-round" onClick={handleNext} disabled={isBuffering} title="Párrafo siguiente" aria-label="Párrafo siguiente">⏭</button>
         <button
+          className="fp-chapbtn"
           onClick={handleNextChapter}
           disabled={isBuffering || chapterIndex >= doc.chapters.length - 1}
           title="Capítulo siguiente"
@@ -285,22 +291,33 @@ export function PlayerBar({ doc }: PlayerBarProps) {
           Cap +
         </button>
       </div>
-      <div className="player-options">
-        <VoiceSelector />
-        <SpeedControl />
-        <label className="volume-control" title="Volumen">
-          <span aria-hidden="true">🔊</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={volume}
-            aria-label="Volumen"
-            onChange={(e) => setVolume(Number(e.target.value))}
-          />
-        </label>
+
+      <div className="fp-wave" aria-hidden="true">
+        {WAVE_BARS.map((h, i) => (
+          <span key={i} style={{ height: `${h}px`, animationDelay: `${i * 0.09}s` }} />
+        ))}
       </div>
+
+      <div className="fp-spacer" />
+
+      <VoiceSelector />
+
+      <div className="fp-sep">
+        <SpeedControl />
+      </div>
+
+      <label className="fp-sep fp-vol" title="Volumen">
+        <span className="fp-vol-label" aria-hidden="true">vol</span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={volume}
+          aria-label="Volumen"
+          onChange={(e) => setVolume(Number(e.target.value))}
+        />
+      </label>
     </div>
   );
 }

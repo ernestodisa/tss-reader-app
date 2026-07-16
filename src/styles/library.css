@@ -1,0 +1,364 @@
+/* Biblioteca de Folio — ver docs/design/folio-v2-tokens.md §Biblioteca.
+   Namespaced con lib-* para no chocar con placeholders transitorios de
+   global.css (.library, .book-card, .dropzone, .badge, .error, ...). */
+
+.lib-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 38px 130px;
+}
+
+/* ── Encabezado ────────────────────────────────────────────────────────── */
+.lib-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.lib-head__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lib-kicker {
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.lib-title {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 44px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+
+.lib-stats {
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+/* ── Dropzone ──────────────────────────────────────────────────────────── */
+.lib-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border: 1.5px dashed color-mix(in oklab, var(--accent) 45%, transparent);
+  background: color-mix(in oklab, var(--accent) 6%, var(--bg2));
+  border-radius: 16px;
+  padding: 22px 30px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.lib-dropzone:hover,
+.lib-dropzone.active {
+  border-color: var(--accent);
+}
+
+.lib-dropzone__circle {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.lib-dropzone__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lib-dropzone__title {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 20px;
+  color: var(--ink);
+}
+
+.lib-dropzone__subtitle {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lib-dropzone__error {
+  color: var(--error);
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+/* ── Lista de libros ───────────────────────────────────────────────────── */
+.lib-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lib-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 2rem;
+}
+
+.lib-card {
+  display: grid;
+  grid-template-columns: 52px 1fr 240px 40px;
+  align-items: center;
+  gap: 22px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 24px;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s;
+  text-align: left;
+}
+
+.lib-card:hover,
+.lib-card:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.lib-card__cover {
+  width: 52px;
+  height: 70px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.lib-card__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lib-card__cover-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(150deg, color-mix(in oklab, var(--accent) 26%, var(--bg3)), var(--bg3));
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 28px;
+  color: var(--accent);
+}
+
+.lib-card__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lib-card__title {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 22px;
+  color: var(--ink);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-card__meta {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-card__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lib-card__progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.lib-card__progress-label {
+  color: var(--muted);
+}
+
+.lib-card__continue {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lib-card__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg3);
+  overflow: hidden;
+}
+
+.lib-card__bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.lib-card__remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0.25rem 0.5rem;
+  transition: color 0.15s;
+  justify-self: end;
+}
+
+.lib-card__remove:hover {
+  color: #e57373;
+}
+
+/* ── Sync panel ────────────────────────────────────────────────────────── */
+.lib-sync {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.lib-sync__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 16px 24px;
+  cursor: pointer;
+  color: var(--ink);
+  font: inherit;
+}
+
+.lib-sync__chevron {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.lib-sync__toggle-label {
+  flex: 1 1 auto;
+}
+
+.lib-sync__last {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.lib-sync__body {
+  padding: 0 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lib-sync__desc {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.lib-sync__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lib-sync__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+  font-size: 15px;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: var(--accent);
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.lib-sync__code::placeholder {
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.lib-sync__spacer {
+  flex: 1 1 auto;
+}
+
+.lib-sync__status {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+/* ── Móvil ─────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .lib-view {
+    padding: 22px;
+  }
+
+  .lib-title {
+    font-size: 30px;
+  }
+
+  .lib-card {
+    grid-template-columns: 42px 1fr 40px;
+    gap: 14px;
+  }
+
+  .lib-card__cover {
+    width: 42px;
+    height: 56px;
+  }
+
+  .lib-card__title {
+    font-size: 17px;
+  }
+
+  .lib-card__progress {
+    grid-column: 1 / -1;
+  }
+
+  .lib-card__progress-row {
+    justify-content: flex-end;
+  }
+}

@@ -12,6 +12,8 @@ export interface LibraryEntry {
   addedAt: number;
   lastReadChapter?: number;
   lastReadParagraph?: number;
+  /** % leído (0-100) por caracteres, calculado en ReaderView. */
+  lastReadPercent?: number;
   /** Portada reducida (dataURL JPEG) copiada de ExtractedDoc.coverDataUrl al importar. */
   coverDataUrl?: string;
   /** Marca de tiempo del último cambio de progreso; usado por sync-client para
@@ -23,7 +25,7 @@ interface LibraryStore {
   books: LibraryEntry[];
   addBook: (doc: ExtractedDoc) => string;
   removeBook: (id: string) => void;
-  updateProgress: (id: string, chapter: number, paragraph: number) => void;
+  updateProgress: (id: string, chapter: number, paragraph: number, percent?: number) => void;
   /** Reemplaza el arreglo completo de libros (usado al bajar progreso vía sync). */
   mergeBooks: (incoming: LibraryEntry[]) => void;
 }
@@ -54,10 +56,16 @@ export const useLibraryStore = create<LibraryStore>()(
       removeBook: (id: string) => set((s) => ({
         books: s.books.filter(b => b.id !== id),
       })),
-      updateProgress: (id, chapter, paragraph) => set((s) => ({
+      updateProgress: (id, chapter, paragraph, percent) => set((s) => ({
         books: s.books.map(b =>
           b.id === id
-            ? { ...b, lastReadChapter: chapter, lastReadParagraph: paragraph, updatedAt: Date.now() }
+            ? {
+                ...b,
+                lastReadChapter: chapter,
+                lastReadParagraph: paragraph,
+                ...(percent != null ? { lastReadPercent: percent } : {}),
+                updatedAt: Date.now(),
+              }
             : b
         ),
       })),
