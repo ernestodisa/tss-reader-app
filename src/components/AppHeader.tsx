@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useDocumentStore } from '../store/document-store';
 import { usePlaybackStore } from '../store/playback-store';
-import { useThemeStore } from '../store/theme-store';
+import { useThemeStore, ACCENTS } from '../store/theme-store';
 import { playerAgent } from '../agents/player';
 import '../styles/app-header.css';
 
@@ -18,6 +18,8 @@ export function AppHeader() {
   const doc = useDocumentStore((s) => s.doc);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
+  const accent = useThemeStore((s) => s.accent);
+  const setAccent = useThemeStore((s) => s.setAccent);
 
   const goToLibrary = useCallback(() => {
     if (typeof window !== 'undefined' && window.history.state?.reader) {
@@ -63,6 +65,21 @@ export function AppHeader() {
         >
           {isDark ? 'Modo papel' : 'Modo noche'}
         </button>
+        <div className="accent-picker" role="radiogroup" aria-label="Color de acento">
+          {ACCENTS.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              role="radio"
+              aria-checked={accent === a.id}
+              className={`accent-swatch${accent === a.id ? ' selected' : ''}`}
+              style={{ background: a.swatch }}
+              onClick={() => setAccent(a.id)}
+              title={a.label}
+              aria-label={`Acento ${a.label}`}
+            />
+          ))}
+        </div>
       </div>
     </header>
   );

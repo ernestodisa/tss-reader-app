@@ -3,8 +3,14 @@ import { getCached, putCache } from './r2-cache';
 import type { Env, EngineId, TTSRequest } from './types';
 
 const MAX_TEXT_LENGTH = 2000;
-const MAX_SYNC_BYTES = 64 * 1024; // 64KB per sync payload
+const MAX_SYNC_BYTES = 64 * 1024; // 64KB per sync payload (progreso)
+// Libros completos (ExtractedDoc JSON + portada dataURL): tope generoso pero
+// acotado para no convertir el bucket en almacenamiento arbitrario.
+const MAX_BOOK_BYTES = 8 * 1024 * 1024; // 8MB por libro
 const SYNC_CODE_RE = /^[A-Za-z0-9]{8,32}$/;
+// bookId lo genera library-store (`epub-<título>-<ts>`): puede llevar espacios
+// y acentos. Se acepta cualquier cosa sin '/' y de tamaño razonable.
+const BOOK_ID_OK = (id: string) => id.length > 0 && id.length <= 256 && !id.includes('/');
 const VALID_ENGINES: EngineId[] = ['edge', 'elevenlabs', 'openai'];
 
 function corsHeaders(): Record<string, string> {
@@ -158,13 +164,23 @@ async function handleTTS(request: Request, env: Env): Promise<Response> {
 // bookmark, not a credential. Do not store anything sensitive here. Payloads
 // are capped at 64KB and stored under sync/{code} in the same R2 bucket.
 async function handleSync(request: Request, env: Env, url: URL): Promise<Response> {
-  const code = decodeURIComponent(url.pathname.slice('/sync/'.length));
+  // Rutas: /sync/{code} (progreso) y /sync/{code}/book/{bookId} (libro completo).
+  const segments = url.pathname.slice('/sync/'.length).split('/').map(decodeURIComponent);
+  const code = segments[0] ?? '';
   if (!SYNC_CODE_RE.test(code)) {
     return jsonError(400, { error: 'invalid_sync_code' });
   }
   if (!env.TTS_CACHE) {
     return jsonError(503, { error: 'sync_unavailable' });
   }
+
+  if (segments.length > 1) {
+    if (segments[1] !== 'book' || segments.length !== 3 || !BOOK_ID_OK(segments[2])) {
+      return jsonError(404, { error: 'not_found' });
+    }
+    return handleSyncBook(request, env, code, segments[2]);
+  }
+
   const objKey = `sync/${code}`;
 
   if (request.method === 'GET') {
@@ -192,6 +208,46 @@ async function handleSync(request: Request, env: Env, url: URL): Promise<Respons
       httpMetadata: { contentType: 'application/json' },
     });
     return jsonOk({ ok: true, code });
+  }
+
+  return jsonError(405, { error: 'method_not_allowed' });
+}
+
+// Libro completo bajo sync/{code}/book/{bookId}: el ExtractedDoc serializado
+// (texto + capítulos + portada dataURL). Mismo modelo de confianza que el
+// progreso: el código es el secreto compartido.
+async function handleSyncBook(
+  request: Request,
+  env: Env,
+  code: string,
+  bookId: string,
+): Promise<Response> {
+  const objKey = `sync/${code}/book/${bookId}`;
+  const bucket = env.TTS_CACHE!;
+
+  if (request.method === 'GET') {
+    const obj = await bucket.get(objKey);
+    if (!obj) return jsonError(404, { error: 'not_found' });
+    return new Response(obj.body, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+    });
+  }
+
+  if (request.method === 'PUT') {
+    const raw = await request.arrayBuffer();
+    if (raw.byteLength > MAX_BOOK_BYTES) {
+      return jsonError(413, { error: 'payload_too_large', maxBytes: MAX_BOOK_BYTES });
+    }
+    try {
+      JSON.parse(new TextDecoder().decode(raw));
+    } catch {
+      return jsonError(400, { error: 'invalid_json' });
+    }
+    await bucket.put(objKey, raw, {
+      httpMetadata: { contentType: 'application/json' },
+    });
+    return jsonOk({ ok: true, code, bookId });
   }
 
   return jsonError(405, { error: 'method_not_allowed' });

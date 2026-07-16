@@ -73,3 +73,31 @@
     font-size: 21px;
   }
 }
+
+/* ── Selector de acento (Ámbar/Violeta/Teal del mockup) ──────────────────── */
+.accent-picker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+
+.accent-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.accent-swatch:hover {
+  transform: scale(1.15);
+}
+
+.accent-swatch.selected {
+  border-color: var(--ink);
+  transform: scale(1.1);
+}

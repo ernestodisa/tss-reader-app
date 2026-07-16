@@ -1,4 +1,5 @@
 import type { LibraryEntry } from '../store/library-store';
+import type { ExtractedDoc } from '../types';
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787';
 
@@ -89,6 +90,84 @@ export async function pullProgress(code: string): Promise<SyncResult<SyncPayload
     }
     const data = (await resp.json()) as SyncPayload;
     return { success: true, data };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'network_error',
+        message: err instanceof Error ? err.message : 'network error',
+        recoverable: true,
+      },
+    };
+  }
+}
+
+// ── Sync de libros completos (contenido, no solo progreso) ───────────────
+// El ExtractedDoc serializado se guarda bajo sync/{code}/book/{bookId} en R2.
+// Así otro dispositivo puede bajar el libro sin re-importar el archivo.
+
+export async function pushBook(
+  code: string,
+  bookId: string,
+  doc: ExtractedDoc,
+): Promise<SyncResult<void>> {
+  try {
+    const resp = await fetch(
+      `${WORKER_URL}/sync/${encodeURIComponent(code)}/book/${encodeURIComponent(bookId)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(doc),
+      },
+    );
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return {
+        success: false,
+        error: {
+          code: 'book_push_failed',
+          message: body.error || `HTTP ${resp.status}`,
+          recoverable: true,
+        },
+      };
+    }
+    return { success: true, data: undefined };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'network_error',
+        message: err instanceof Error ? err.message : 'network error',
+        recoverable: true,
+      },
+    };
+  }
+}
+
+export async function pullBook(code: string, bookId: string): Promise<SyncResult<ExtractedDoc>> {
+  try {
+    const resp = await fetch(
+      `${WORKER_URL}/sync/${encodeURIComponent(code)}/book/${encodeURIComponent(bookId)}`,
+    );
+    if (resp.status === 404) {
+      return {
+        success: false,
+        error: { code: 'not_found', message: 'Ese libro no está subido con este código.', recoverable: true },
+      };
+    }
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return {
+        success: false,
+        error: {
+          code: 'book_pull_failed',
+          message: body.error || `HTTP ${resp.status}`,
+          recoverable: true,
+        },
+      };
+    }
+    const doc = (await resp.json()) as ExtractedDoc;
+    return { success: true, data: doc };
   } catch (err) {
     return {
       success: false,

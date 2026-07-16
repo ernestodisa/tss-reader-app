@@ -31,6 +31,29 @@
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
 }
 
+/* ── Acentos alternativos del mockup (data-accent; ámbar es el default) ───── */
+/* Valores EXACTOS de Component.ACCENTS en Folio Rediseño v2.dc.html:
+   par [color, tinta-sobre-color] por tema. */
+:root[data-accent='violeta'] {
+  --accent: #a293f5;
+  --accent-ink: #17141f;
+}
+
+:root[data-accent='teal'] {
+  --accent: #5fc9ae;
+  --accent-ink: #10201b;
+}
+
+:root[data-theme='light'][data-accent='violeta'] {
+  --accent: #6a58d6;
+  --accent-ink: #f6f4ff;
+}
+
+:root[data-theme='light'][data-accent='teal'] {
+  --accent: #0f8a70;
+  --accent-ink: #f0fbf7;
+}
+
 /* ── Tokens: tema claro ("Modo papel") ────────────────────────────────────── */
 :root[data-theme='light'] {
   --bg: #f5f1ea;

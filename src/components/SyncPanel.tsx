@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useLibraryStore } from '../store/library-store';
-import { generateSyncCode, pushProgress, pullProgress } from '../lib/sync-client';
+import { generateSyncCode, pushProgress, pullProgress, pushBook, pullBook } from '../lib/sync-client';
+import { loadDoc, saveDoc } from '../lib/library-docs';
 import '../styles/library.css';
 
 /**
@@ -37,15 +38,31 @@ export function SyncPanel() {
       setStatus('Genera o escribe un código primero.');
       return;
     }
+    const syncCode = code.trim();
     setBusy(true);
     setStatus(null);
     const books = useLibraryStore.getState().books;
-    const result = await pushProgress(code.trim(), { books, syncedAt: Date.now() });
+    const result = await pushProgress(syncCode, { books, syncedAt: Date.now() });
+    if (!result.success) {
+      setBusy(false);
+      setStatus(`Error al subir: ${result.error.message}`);
+      return;
+    }
+    // Sube también el CONTENIDO de cada libro (secuencial, con progreso visible).
+    let uploaded = 0;
+    let failed = 0;
+    for (let i = 0; i < books.length; i++) {
+      setStatus(`Subiendo libros… ${i + 1}/${books.length}`);
+      const doc = await loadDoc(books[i].id);
+      if (!doc) continue; // entrada sin contenido local (p.ej. bajada solo como progreso)
+      const bookResult = await pushBook(syncCode, books[i].id, doc);
+      if (bookResult.success) uploaded++;
+      else failed++;
+    }
     setBusy(false);
     setStatus(
-      result.success
-        ? `Progreso subido (${books.length} libro${books.length === 1 ? '' : 's'}).`
-        : `Error al subir: ${result.error.message}`,
+      `Progreso y ${uploaded} libro${uploaded === 1 ? '' : 's'} subidos.` +
+        (failed > 0 ? ` ${failed} fallaron (reintenta).` : ''),
     );
   }, [code]);
 
@@ -54,16 +71,39 @@ export function SyncPanel() {
       setStatus('Escribe el código con el que quieres conectar.');
       return;
     }
+    const syncCode = code.trim();
     setBusy(true);
     setStatus(null);
-    const result = await pullProgress(code.trim());
-    setBusy(false);
+    const result = await pullProgress(syncCode);
     if (!result.success) {
+      setBusy(false);
       setStatus(`Error al bajar: ${result.error.message}`);
       return;
     }
     useLibraryStore.getState().mergeBooks(result.data.books);
-    setStatus(`Progreso bajado y combinado (${result.data.books.length} libro${result.data.books.length === 1 ? '' : 's'}).`);
+    // Baja el contenido de los libros que este dispositivo no tiene localmente.
+    const merged = useLibraryStore.getState().books;
+    let downloaded = 0;
+    let missing = 0;
+    for (let i = 0; i < merged.length; i++) {
+      const existing = await loadDoc(merged[i].id);
+      if (existing) continue;
+      setStatus(`Bajando libros… ${downloaded + 1}`);
+      const bookResult = await pullBook(syncCode, merged[i].id);
+      if (bookResult.success) {
+        await saveDoc(merged[i].id, bookResult.data);
+        downloaded++;
+      } else {
+        missing++;
+      }
+    }
+    setBusy(false);
+    setStatus(
+      `Progreso combinado (${result.data.books.length} entradas)` +
+        (downloaded > 0 ? ` · ${downloaded} libro${downloaded === 1 ? '' : 's'} descargado${downloaded === 1 ? '' : 's'}` : '') +
+        (missing > 0 ? ` · ${missing} sin contenido en la nube (súbelos desde el otro dispositivo)` : '') +
+        '.',
+    );
   }, [code]);
 
   return (
@@ -81,7 +121,7 @@ export function SyncPanel() {
       {expanded && (
         <div className="lib-sync__body">
           <p className="lib-sync__desc">
-            Genera un código en un dispositivo y úsalo en otro para compartir tu progreso de lectura.
+            Genera un código en un dispositivo y úsalo en otro para compartir tus libros y tu progreso de lectura.
           </p>
           <div className="lib-sync__row">
             <input
