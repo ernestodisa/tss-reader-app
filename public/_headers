@@ -1,0 +1,30 @@
+# Cloudflare Pages — cabeceras de seguridad para todas las rutas.
+# Access ya bloquea a los no autenticados; estas cabeceras endurecen al navegador.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# Datos sensibles: sin cache, para que un cambio se vea al instante.
+/data/*
+  Cache-Control: no-cache, must-revalidate
+
+# config.js: sin cache (si rotas algo, surte efecto ya).
+/config.js
+  Cache-Control: no-cache, must-revalidate
+
+# HTML principal: sin cache.
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+# Librerías que no cambian: cache largo e inmutable.
+/lib/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# JS/CSS de la app: cache corto (cambia con cada release).
+/app.js
+  Cache-Control: public, max-age=300
+/styles.css
+  Cache-Control: public, max-age=300

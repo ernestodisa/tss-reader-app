@@ -1,0 +1,10 @@
+# Config de Cloudflare Pages para tss-reader-app (Folio).
+# El API vive en functions/api/[[path]].ts (mismo origen, detrás de Access);
+# reutiliza la lógica del worker/ y necesita el mismo bucket R2.
+name = "tss-reader-app"
+compatibility_date = "2024-06-01"
+pages_build_output_dir = "dist"
+
+[[r2_buckets]]
+binding = "TTS_CACHE"
+bucket_name = "speechify-tts-cache"
