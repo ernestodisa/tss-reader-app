@@ -19,8 +19,9 @@ export interface EngineInfo {
 // Edge voices mirror the frontend's AVAILABLE_VOICES (src/types/tts.ts).
 const EDGE_VOICES: EngineVoice[] = [
   { id: 'es-MX-DaliaNeural', name: 'Dalia', language: 'es-MX', gender: 'female' },
-  { id: 'es-ES-ElviraNeural', name: 'Elvira', language: 'es-ES', gender: 'female' },
+  { id: 'es-MX-JorgeNeural', name: 'Jorge', language: 'es-MX', gender: 'male' },
   { id: 'en-US-AriaNeural', name: 'Aria', language: 'en-US', gender: 'female' },
+  { id: 'en-US-GuyNeural', name: 'Guy', language: 'en-US', gender: 'male' },
 ];
 
 // Representative ElevenLabs public voices (voice IDs from the shared library).

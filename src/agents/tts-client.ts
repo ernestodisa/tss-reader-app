@@ -1,6 +1,6 @@
 import { useCacheStore } from '../store/cache-store';
 import { TieredCache } from '../lib/tiered-cache';
-import { decodeAudio } from '../lib/audio-utils';
+
 import type { AgentResult, TTSChunk, TTSResponse, WordTiming } from '../types';
 
 // ── Worker URL (configurable via Vite env) ──────────────────────────────
@@ -95,17 +95,10 @@ export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse
       words = JSON.parse(wordsHeader);
     }
 
-    // Store raw MP3 bytes so future cache hits can return pristine audio
+    // Store raw MP3 bytes so future cache hits can return pristine audio.
+    // (El player reproduce MP3 crudo en <audio>; ya no se decodifica a PCM
+    // ni se llena la capa putAudio del cache-store — nadie la lee.)
     await rawAudioCache.put(`raw:${chunk.id}`, { audio, durationMs } as RawAudioEntry, RAW_TTL);
-
-    // Also decode to AudioBuffer for the cache store's audio layer
-    // (non-fatal if decoding fails — edge voices can produce quirky streams)
-    try {
-      const audioBuffer = await decodeAudio(audio.slice(0));
-      await useCacheStore.getState().putAudio(chunk.id, audioBuffer);
-    } catch {
-      // Decode failure is non-fatal; raw bytes are already cached
-    }
 
     // Store word timings
     await useCacheStore.getState().putTimings(chunk.id, words);

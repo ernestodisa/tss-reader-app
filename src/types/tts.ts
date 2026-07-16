@@ -26,8 +26,9 @@ export interface VoiceConfig {
 
 export const AVAILABLE_VOICES: VoiceConfig[] = [
   { id: 'es-MX-DaliaNeural', name: 'Dalia', language: 'es-MX', gender: 'female', engine: 'edge' },
-  { id: 'es-ES-ElviraNeural', name: 'Elvira', language: 'es-ES', gender: 'female', engine: 'edge' },
+  { id: 'es-MX-JorgeNeural', name: 'Jorge', language: 'es-MX', gender: 'male', engine: 'edge' },
   { id: 'en-US-AriaNeural', name: 'Aria', language: 'en-US', gender: 'female', engine: 'edge' },
+  { id: 'en-US-GuyNeural', name: 'Guy', language: 'en-US', gender: 'male', engine: 'edge' },
 ];
 
 /**

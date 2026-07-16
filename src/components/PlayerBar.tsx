@@ -5,7 +5,6 @@ import { useDocumentStore } from '../store/document-store';
 import { playerAgent } from '../agents/player';
 import { fetchTTS } from '../agents/tts-client';
 import { chunkParagraph } from '../agents/chunker';
-import { decodeAudio } from '../lib/audio-utils';
 import { VoiceSelector } from './VoiceSelector';
 import { SpeedControl } from './SpeedControl';
 import { prefetchNext } from '../lib/prefetch';
@@ -16,24 +15,13 @@ import '../styles/player.css';
 // Alturas de las 10 barras decorativas del waveform (spec §Player flotante).
 const WAVE_BARS = [14, 22, 10, 26, 18, 28, 12, 24, 16, 20];
 
-// Concatenate decoded chunk buffers into a single AudioBuffer so multi-chunk
-// paragraphs play in full and karaoke offsets can be made absolute.
-function concatAudioBuffers(buffers: AudioBuffer[]): AudioBuffer {
-  if (buffers.length === 1) return buffers[0];
-  const sampleRate = buffers[0].sampleRate;
-  const numberOfChannels = Math.max(...buffers.map((b) => b.numberOfChannels));
-  const length = buffers.reduce((sum, b) => sum + b.length, 0);
-  const out = new AudioBuffer({ length, numberOfChannels, sampleRate });
-  let offset = 0;
-  for (const b of buffers) {
-    for (let ch = 0; ch < numberOfChannels; ch++) {
-      // If a chunk has fewer channels, reuse its last available channel
-      const src = b.getChannelData(Math.min(ch, b.numberOfChannels - 1));
-      out.getChannelData(ch).set(src, offset);
-    }
-    offset += b.length;
-  }
-  return out;
+// Duración de un chunk MP3 de Edge TTS sin decodificarlo: el formato es CBR
+// 48 kbps (audio-24khz-48kbitrate-mono-mp3) → 6000 bytes/seg → ms = bytes / 6.
+// Se usa para desplazar los timings de chunks posteriores; el durationMs del
+// worker (última palabra) subestima por el silencio de cola, así que se toma
+// el mayor de los dos.
+function chunkDurationMs(bytes: number, reportedMs: number): number {
+  return Math.max(reportedMs, Math.round(bytes / 6));
 }
 
 interface PlayerBarProps {
@@ -79,7 +67,7 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     // Fetch TTS for all chunks in the plan
     const plan = chunkResult.data;
     const allTimings: WordTiming[] = [];
-    const allAudioBuffers: AudioBuffer[] = [];
+    const mp3Parts: ArrayBuffer[] = [];
     let accumulatedMs = 0; // duration of all previous chunks' audio
 
     for (const chunk of plan.chunks) {
@@ -94,21 +82,19 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         return;
       }
 
-      const audioBuffer = await decodeAudio(ttsResult.data.audio);
-      allAudioBuffers.push(audioBuffer);
+      mp3Parts.push(ttsResult.data.audio);
       // Chunk timings are relative to the chunk's own audio; shift them by the
       // accumulated duration of previous chunks so offsets are paragraph-absolute.
       for (const w of ttsResult.data.words) {
         allTimings.push({ ...w, offsetMs: w.offsetMs + accumulatedMs });
       }
-      accumulatedMs += audioBuffer.duration * 1000;
+      accumulatedMs += chunkDurationMs(ttsResult.data.audio.byteLength, ttsResult.data.durationMs);
     }
 
-    // Concatenate all chunk buffers into one so the whole paragraph plays
-    // and the shifted timings above line up with the audio.
-    if (allAudioBuffers.length > 0) {
-      const audio = concatAudioBuffers(allAudioBuffers);
-      playerAgent.load(paragraph.id, audio, allTimings);
+    // Los bytes MP3 CBR son concatenables como un solo stream: el <audio> los
+    // reproduce de corrido y los timings desplazados quedan alineados.
+    if (mp3Parts.length > 0) {
+      playerAgent.load(paragraph.id, mp3Parts, allTimings);
       setParagraphTiming(paragraph.id, { status: 'ready', timings: allTimings });
       playerAgent.play();
       // Sync store: real playback just started → button shows ⏸, karaoke activates
