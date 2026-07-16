@@ -58,6 +58,12 @@ export async function extractEPub(
         continue;
       }
 
+      // El título se captura ANTES de podar, porque <title> vive en <head>
+      const chapterTitle =
+        doc.querySelector('h1, h2, h3, title')?.textContent?.trim() || `Capítulo ${i + 1}`;
+
+      stripNonContent(doc);
+
       // Try to extract paragraphs from <p> tags first
       const paraElements = doc.querySelectorAll('p, div, h1, h2, h3');
       let paraTexts: string[];
@@ -90,8 +96,6 @@ export async function extractEPub(
         chapterId: `epub-ch-${i}`,
       }));
 
-      const chapterTitle = doc.querySelector('h1, h2, h3, title')?.textContent?.trim() || `Capítulo ${i + 1}`;
-
       chapters.push({
         id: `epub-ch-${i}`,
         title: chapterTitle,
@@ -108,6 +112,7 @@ export async function extractEPub(
       try {
         const doc: any = await book.load(item.href);
         if (doc) {
+          stripNonContent(doc);
           const body = doc.body || doc.documentElement || (typeof doc.querySelectorAll === 'function' ? doc : null);
           const text: string = body?.textContent || '';
           const texts = text
@@ -145,6 +150,21 @@ export async function extractEPub(
 
   book.destroy();
   return { title, author, chapters, coverDataUrl };
+}
+
+/**
+ * Elimina nodos que no son contenido legible (CSS, JS, metadatos) para que
+ * textContent y los selectores de párrafo no capturen reglas de estilo —
+ * p.ej. "@page {padding: 0pt...}" aparecía como párrafo en portadas.
+ * Acepta Document o elemento suelto (ambos soportan querySelectorAll).
+ */
+function stripNonContent(root: any): void {
+  if (typeof root?.querySelectorAll !== 'function') return;
+  try {
+    root.querySelectorAll('style, script, head, link, meta, title').forEach((el: any) => el.remove?.());
+  } catch {
+    // Si el DOM parcial no soporta remove(), se deja tal cual.
+  }
 }
 
 /**

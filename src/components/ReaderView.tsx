@@ -132,6 +132,40 @@ export function ReaderView() {
     useLibraryStore.getState().updateProgress(bookId, chapterIndex, paragraphIndex);
   }, [bookId, chapterIndex, paragraphIndex]);
 
+  // ── Regreso a la biblioteca ───────────────────────────────────────────────
+  const closeReader = useCallback(() => {
+    playerAgent.fullStop();
+    usePlaybackStore.getState().stop();
+    useDocumentStore.getState().unloadDocument();
+  }, []);
+
+  // El botón atrás del navegador debe volver a la biblioteca, no salir de la
+  // app: al abrir un libro se apila un estado de historial; popstate lo cierra.
+  useEffect(() => {
+    if (!doc) return;
+    window.history.pushState({ reader: true }, '');
+    const onPopState = () => closeReader();
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [doc, closeReader]);
+
+  // El botón ← consume el estado apilado (dispara popstate → closeReader),
+  // así el historial queda igual que si el usuario hubiera usado "atrás".
+  const handleBack = useCallback(() => {
+    if (window.history.state?.reader) window.history.back();
+    else closeReader();
+  }, [closeReader]);
+
+  // ── Avance por porcentaje (caracteres leídos / totales del libro) ────────
+  const percent = useMemo(() => {
+    if (!doc || doc.totalCharacters <= 0) return 0;
+    let read = 0;
+    for (let c = 0; c < chapterIndex; c++) read += doc.chapters[c]?.totalCharacters ?? 0;
+    const paras = doc.chapters[chapterIndex]?.paragraphs ?? [];
+    for (let p = 0; p < paragraphIndex && p < paras.length; p++) read += paras[p].text.length;
+    return Math.min(100, Math.round((read / doc.totalCharacters) * 100));
+  }, [doc, chapterIndex, paragraphIndex]);
+
   if (!doc) return null;
   if (!chapter) return <p>Capítulo no encontrado</p>;
 
@@ -141,6 +175,15 @@ export function ReaderView() {
   return (
     <div className="reader-view">
       <div className="reader-header">
+        <button
+          type="button"
+          className="back-to-library"
+          onClick={handleBack}
+          aria-label="Volver a la biblioteca"
+          title="Volver a la biblioteca"
+        >
+          ←
+        </button>
         <button
           type="button"
           className="chapter-toggle"
@@ -153,7 +196,7 @@ export function ReaderView() {
         </button>
         <h2>{chapter.title}</h2>
         <span className="progress">
-          {chapterIndex + 1}/{doc.chapters.length} · {paragraphIndex + 1}/{total}
+          {percent}% · {chapterIndex + 1}/{doc.chapters.length} · {paragraphIndex + 1}/{total}
         </span>
         <div className="reader-header-actions">
           {bookId && <BookmarkButton bookId={bookId} />}
