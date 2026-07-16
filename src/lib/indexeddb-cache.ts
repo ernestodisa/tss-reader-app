@@ -1,4 +1,4 @@
-import { get, set, del, clear, createStore } from 'idb-keyval';
+import { get, set, del, clear, keys, createStore } from 'idb-keyval';
 import type { CacheEntry, CacheKey, CacheLayer, CacheStats } from '../types';
 
 export class IndexedDBCache implements CacheLayer {
@@ -37,6 +37,8 @@ export class IndexedDBCache implements CacheLayer {
       // Quota exceeded — evict and retry
       await this.evictOldest();
       await set(key, entry, this.store);
+      this._stats.sizeBytes += sizeBytes;
+      this._stats.entries++;
     }
   }
 
@@ -54,9 +56,31 @@ export class IndexedDBCache implements CacheLayer {
   }
 
   private async evictOldest(): Promise<void> {
-    // Simplified: clear 25% of entries
-    await clear(this.store);
-    this._stats.sizeBytes = 0;
-    this._stats.entries = 0;
+    // Evict the least-recently-accessed 25% of entries (LRU)
+    try {
+      const allKeys = await keys<CacheKey>(this.store);
+      if (allKeys.length === 0) return;
+
+      const entries: { key: CacheKey; lastAccessedAt: number; sizeBytes: number }[] = [];
+      for (const k of allKeys) {
+        const entry = await get<CacheEntry<unknown>>(k, this.store);
+        if (entry) {
+          entries.push({ key: k, lastAccessedAt: entry.lastAccessedAt, sizeBytes: entry.sizeBytes });
+        }
+      }
+
+      entries.sort((a, b) => a.lastAccessedAt - b.lastAccessedAt);
+      const evictCount = Math.max(1, Math.ceil(entries.length * 0.25));
+      for (const { key, sizeBytes } of entries.slice(0, evictCount)) {
+        await del(key, this.store);
+        this._stats.sizeBytes = Math.max(0, this._stats.sizeBytes - sizeBytes);
+        this._stats.entries = Math.max(0, this._stats.entries - 1);
+      }
+    } catch {
+      // Fallback: nuke everything if LRU eviction itself fails
+      await clear(this.store);
+      this._stats.sizeBytes = 0;
+      this._stats.entries = 0;
+    }
   }
 }

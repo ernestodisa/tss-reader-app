@@ -52,8 +52,8 @@ export async function prefetchNext(doc: ExtractedDoc): Promise<void> {
         const result = await fetchTTS(chunk);
         if (!result.success) return;
       }
-      // Mark as ready (timings are stored in cache)
-      usePlaybackStore.getState().setParagraphTiming(paragraph.id, { status: 'ready', timings: [] });
+      // Mark as cached (audio/timings live in the cache; 'ready' is reserved for real in-memory timings)
+      usePlaybackStore.getState().setParagraphTiming(paragraph.id, { status: 'cached' });
     })();
   }
 }

@@ -85,7 +85,14 @@ export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse
     const audio = await resp.arrayBuffer();
     const wordsHeader = resp.headers.get('X-Words') || '[]';
     const durationMs = parseInt(resp.headers.get('X-Duration') || '0', 10);
-    const words: WordTiming[] = JSON.parse(wordsHeader);
+    // Worker sends X-Words URI-encoded (Latin-1-safe); fall back to raw JSON
+    // for compatibility with older worker responses.
+    let words: WordTiming[];
+    try {
+      words = JSON.parse(decodeURIComponent(wordsHeader));
+    } catch {
+      words = JSON.parse(wordsHeader);
+    }
 
     // Store raw MP3 bytes so future cache hits can return pristine audio
     await rawAudioCache.put(`raw:${chunk.id}`, { audio, durationMs } as RawAudioEntry, RAW_TTL);

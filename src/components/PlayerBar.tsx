@@ -9,7 +9,27 @@ import { decodeAudio } from '../lib/audio-utils';
 import { VoiceSelector } from './VoiceSelector';
 import { SpeedControl } from './SpeedControl';
 import { prefetchNext } from '../lib/prefetch';
-import type { ExtractedDoc, Paragraph } from '../types';
+import type { ExtractedDoc, Paragraph, WordTiming } from '../types';
+
+// Concatenate decoded chunk buffers into a single AudioBuffer so multi-chunk
+// paragraphs play in full and karaoke offsets can be made absolute.
+function concatAudioBuffers(buffers: AudioBuffer[]): AudioBuffer {
+  if (buffers.length === 1) return buffers[0];
+  const sampleRate = buffers[0].sampleRate;
+  const numberOfChannels = Math.max(...buffers.map((b) => b.numberOfChannels));
+  const length = buffers.reduce((sum, b) => sum + b.length, 0);
+  const out = new AudioBuffer({ length, numberOfChannels, sampleRate });
+  let offset = 0;
+  for (const b of buffers) {
+    for (let ch = 0; ch < numberOfChannels; ch++) {
+      // If a chunk has fewer channels, reuse its last available channel
+      const src = b.getChannelData(Math.min(ch, b.numberOfChannels - 1));
+      out.getChannelData(ch).set(src, offset);
+    }
+    offset += b.length;
+  }
+  return out;
+}
 
 interface PlayerBarProps {
   doc: ExtractedDoc;
@@ -41,13 +61,15 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     if (!chunkResult.success) {
       setParagraphTiming(paragraph.id, { status: 'error', error: chunkResult.error });
       setBuffering(false);
+      usePlaybackStore.getState().pause();
       return;
     }
 
     // Fetch TTS for all chunks in the plan
     const plan = chunkResult.data;
-    const allTimings = [];
+    const allTimings: WordTiming[] = [];
     const allAudioBuffers: AudioBuffer[] = [];
+    let accumulatedMs = 0; // duration of all previous chunks' audio
 
     for (const chunk of plan.chunks) {
       // Check generation — discard if stale
@@ -57,21 +79,29 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       if (!ttsResult.success) {
         setParagraphTiming(paragraph.id, { status: 'error', error: ttsResult.error });
         setBuffering(false);
+        usePlaybackStore.getState().pause();
         return;
       }
 
       const audioBuffer = await decodeAudio(ttsResult.data.audio);
       allAudioBuffers.push(audioBuffer);
-      allTimings.push(...ttsResult.data.words);
+      // Chunk timings are relative to the chunk's own audio; shift them by the
+      // accumulated duration of previous chunks so offsets are paragraph-absolute.
+      for (const w of ttsResult.data.words) {
+        allTimings.push({ ...w, offsetMs: w.offsetMs + accumulatedMs });
+      }
+      accumulatedMs += audioBuffer.duration * 1000;
     }
 
-    // For MVP: use the first chunk's audio (simplification — multi-chunk concatenation is post-MVP)
-    // In practice, most paragraphs fit in one chunk
-    const audio = allAudioBuffers[0];
-    if (audio) {
+    // Concatenate all chunk buffers into one so the whole paragraph plays
+    // and the shifted timings above line up with the audio.
+    if (allAudioBuffers.length > 0) {
+      const audio = concatAudioBuffers(allAudioBuffers);
       playerAgent.load(paragraph.id, audio, allTimings);
       setParagraphTiming(paragraph.id, { status: 'ready', timings: allTimings });
       playerAgent.play();
+      // Sync store: real playback just started → button shows ⏸, karaoke activates
+      usePlaybackStore.getState().play();
       // Start prefetching next paragraphs (best-effort, fire-and-forget)
       prefetchNext(doc).catch(() => { /* silent fail — prefetch is best-effort */ });
     }
@@ -83,12 +113,14 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   const handlePlayPause = async () => {
     if (isPlaying) {
       playerAgent.pause();
+      usePlaybackStore.getState().pause();
       return;
     }
 
     // If player already has audio loaded, just resume (not play — sourceNode already started)
     if (playerAgent.getCurrentPositionMs() > 0) {
       playerAgent.resume();
+      usePlaybackStore.getState().play();
       return;
     }
 
@@ -136,12 +168,25 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     playerAgent.setEndCallback(() => {
       const store = usePlaybackStore.getState();
       const currentDoc = useDocumentStore.getState().doc || doc;
-      if (!currentDoc) return;
+      if (!currentDoc) {
+        store.stop();
+        return;
+      }
+      const prevCh = store.chapterIndex;
+      const prevPar = store.paragraphIndex;
       store.nextParagraph(currentDoc);
-      const chapter = currentDoc.chapters[usePlaybackStore.getState().chapterIndex];
-      const paragraph = chapter?.paragraphs[usePlaybackStore.getState().paragraphIndex];
+      const after = usePlaybackStore.getState();
+      // nextParagraph is a no-op at end of document → stop playback in the store
+      if (after.chapterIndex === prevCh && after.paragraphIndex === prevPar) {
+        after.stop();
+        return;
+      }
+      const chapter = currentDoc.chapters[after.chapterIndex];
+      const paragraph = chapter?.paragraphs[after.paragraphIndex];
       if (paragraph) {
         loadAndPlayParagraph(paragraph, store.voiceId, store.speed, store.generationId);
+      } else {
+        usePlaybackStore.getState().stop();
       }
     });
 

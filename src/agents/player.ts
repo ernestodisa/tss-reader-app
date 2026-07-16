@@ -36,9 +36,16 @@ class PlayerAgent {
     this.sourceNode.buffer = audio;
     this.sourceNode.connect(ctx.destination);
 
-    this.sourceNode.onended = () => {
+    const node = this.sourceNode;
+    node.onended = () => {
+      // Natural end of playback: clear all state so getCurrentPositionMs()
+      // returns 0 (handlePlayPause must NOT try to resume a finished source).
       this._currentParagraphId = null;
       this._timings = [];
+      if (this.sourceNode === node) {
+        node.disconnect();
+        this.sourceNode = null;
+      }
       cancelAnimationFrame(this._rafId);
       this.endCallback?.();
     };
@@ -64,6 +71,9 @@ class PlayerAgent {
   fullStop(): void {
     cancelAnimationFrame(this._rafId);
     if (this.sourceNode) {
+      // Detach onended BEFORE stopping: a manual stop (next/prev/reload) must
+      // not fire the end callback, which would auto-advance spuriously.
+      this.sourceNode.onended = null;
       try { this.sourceNode.stop(); } catch { /* already stopped */ }
       this.sourceNode.disconnect();
       this.sourceNode = null;
@@ -73,6 +83,10 @@ class PlayerAgent {
   }
 
   getCurrentPositionMs(): number {
+    // While the AudioContext is suspended (pause), ctx.currentTime freezes,
+    // so `currentTime - _startTime` stays put and resume() continues tracking
+    // correctly without re-anchoring _startTime. After onended, both fields
+    // below are cleared, so this returns 0 for a finished source.
     if (!this._currentParagraphId || !this.sourceNode) return 0;
     const elapsed = (this.getCtx().currentTime - this._startTime) * 1000;
     return Math.max(0, elapsed);

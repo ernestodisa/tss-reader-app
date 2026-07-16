@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { TieredCache } from '../lib/tiered-cache';
+import { audioBufferFromCachePCM } from '../lib/audio-utils';
 import type { WordTiming } from '../types';
 
 const cache = new TieredCache();
@@ -21,8 +22,11 @@ export const useCacheStore = create<CacheStore>((set) => ({
   getAudio: async (chunkId: string) => {
     const entry = await cache.get<ArrayBuffer>(`audio:${chunkId}`);
     if (entry) {
-      set(s => ({ hits: s.hits + 1 }));
-      return entry.value as unknown as AudioBuffer;
+      const audioBuffer = audioBufferFromCachePCM(entry.value);
+      if (audioBuffer) {
+        set(s => ({ hits: s.hits + 1 }));
+        return audioBuffer;
+      }
     }
     set(s => ({ misses: s.misses + 1 }));
     return null;

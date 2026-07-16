@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useDocument } from '../hooks/useDocument';
 import { useLibrary } from '../hooks/useLibrary';
 import { useDocumentStore } from '../store/document-store';
+import { saveDoc } from '../lib/library-docs';
 
 export function ImportDropzone() {
   const { loadDocument, isLoading, error } = useDocument();
@@ -14,7 +15,12 @@ export function ImportDropzone() {
       // The doc is now in the store — add it to library
       const doc = useDocumentStore.getState().doc;
       if (doc) {
-        addBook(doc);
+        const id = addBook(doc);
+        try {
+          await saveDoc(id, doc);
+        } catch (err) {
+          console.error('No se pudo persistir el documento en la biblioteca', err);
+        }
       }
     }
   }, [loadDocument, addBook]);

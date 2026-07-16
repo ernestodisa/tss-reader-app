@@ -16,7 +16,7 @@ interface LibraryEntry {
 
 interface LibraryStore {
   books: LibraryEntry[];
-  addBook: (doc: ExtractedDoc) => void;
+  addBook: (doc: ExtractedDoc) => string;
   removeBook: (id: string) => void;
   updateProgress: (id: string, chapter: number, paragraph: number) => void;
 }
@@ -25,20 +25,24 @@ export const useLibraryStore = create<LibraryStore>()(
   persist(
     (set) => ({
       books: [],
-      addBook: (doc: ExtractedDoc) => set((s) => ({
-        books: [
-          ...s.books,
-          {
-            id: `${doc.sourceType}-${doc.title}-${Date.now()}`,
-            title: doc.title,
-            author: doc.author,
-            sourceType: doc.sourceType,
-            totalPages: doc.totalPages,
-            totalCharacters: doc.totalCharacters,
-            addedAt: Date.now(),
-          },
-        ],
-      })),
+      addBook: (doc: ExtractedDoc) => {
+        const id = `${doc.sourceType}-${doc.title}-${Date.now()}`;
+        set((s) => ({
+          books: [
+            ...s.books,
+            {
+              id,
+              title: doc.title,
+              author: doc.author,
+              sourceType: doc.sourceType,
+              totalPages: doc.totalPages,
+              totalCharacters: doc.totalCharacters,
+              addedAt: Date.now(),
+            },
+          ],
+        }));
+        return id;
+      },
       removeBook: (id: string) => set((s) => ({
         books: s.books.filter(b => b.id !== id),
       })),

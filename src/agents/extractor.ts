@@ -38,7 +38,7 @@ export async function extractDocument(file: File): Promise<AgentResult<Extracted
       sourceType: isPdf ? 'pdf' : 'epub',
       totalPages,
       totalCharacters,
-      estimatedDurationMs: Math.round(totalCharacters / 15 * 1000 * 60), // ~15 chars/sec at 1x
+      estimatedDurationMs: Math.round(totalCharacters / 15 * 1000), // ~15 chars/sec at 1x
     };
 
     return { success: true, data: doc };
