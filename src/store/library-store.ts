@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ExtractedDoc } from '../types';
 
-interface LibraryEntry {
+export interface LibraryEntry {
   id: string;
   title: string;
   author?: string;
@@ -12,6 +12,11 @@ interface LibraryEntry {
   addedAt: number;
   lastReadChapter?: number;
   lastReadParagraph?: number;
+  /** Portada reducida (dataURL JPEG) copiada de ExtractedDoc.coverDataUrl al importar. */
+  coverDataUrl?: string;
+  /** Marca de tiempo del último cambio de progreso; usado por sync-client para
+   *  resolver conflictos entre dispositivos (gana el más reciente). */
+  updatedAt?: number;
 }
 
 interface LibraryStore {
@@ -19,6 +24,8 @@ interface LibraryStore {
   addBook: (doc: ExtractedDoc) => string;
   removeBook: (id: string) => void;
   updateProgress: (id: string, chapter: number, paragraph: number) => void;
+  /** Reemplaza el arreglo completo de libros (usado al bajar progreso vía sync). */
+  mergeBooks: (incoming: LibraryEntry[]) => void;
 }
 
 export const useLibraryStore = create<LibraryStore>()(
@@ -38,6 +45,7 @@ export const useLibraryStore = create<LibraryStore>()(
               totalPages: doc.totalPages,
               totalCharacters: doc.totalCharacters,
               addedAt: Date.now(),
+              coverDataUrl: doc.coverDataUrl,
             },
           ],
         }));
@@ -49,10 +57,26 @@ export const useLibraryStore = create<LibraryStore>()(
       updateProgress: (id, chapter, paragraph) => set((s) => ({
         books: s.books.map(b =>
           b.id === id
-            ? { ...b, lastReadChapter: chapter, lastReadParagraph: paragraph }
+            ? { ...b, lastReadChapter: chapter, lastReadParagraph: paragraph, updatedAt: Date.now() }
             : b
         ),
       })),
+      // Merge conservando, por id, la entrada con updatedAt/addedAt más reciente.
+      // Libros que solo existen de un lado se conservan tal cual.
+      mergeBooks: (incoming) => set((s) => {
+        const byId = new Map(s.books.map((b) => [b.id, b]));
+        for (const inBook of incoming) {
+          const existing = byId.get(inBook.id);
+          if (!existing) {
+            byId.set(inBook.id, inBook);
+            continue;
+          }
+          const existingTs = existing.updatedAt ?? existing.addedAt;
+          const incomingTs = inBook.updatedAt ?? inBook.addedAt;
+          byId.set(inBook.id, incomingTs > existingTs ? inBook : existing);
+        }
+        return { books: Array.from(byId.values()) };
+      }),
     }),
     { name: 'speechify-library' },
   ),

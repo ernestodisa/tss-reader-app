@@ -16,6 +16,7 @@ export function ImportDropzone() {
       const doc = useDocumentStore.getState().doc;
       if (doc) {
         const id = addBook(doc);
+        useDocumentStore.getState().setCurrentBookId(id);
         try {
           await saveDoc(id, doc);
         } catch (err) {

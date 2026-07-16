@@ -267,3 +267,168 @@ body {
   background: var(--accent);
   color: var(--bg);
 }
+
+/* ── Reader: capítulo completo con párrafos clickeables (Tarea D) ───────── */
+.reader-header {
+  gap: 0.75rem;
+}
+
+.chapter-toggle {
+  background: var(--bg-elevated);
+  border: none;
+  color: var(--text);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 1.1rem;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.chapter-toggle:hover {
+  background: var(--accent);
+}
+
+.reader-header h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Cada párrafo es clickeable para reposicionar la lectura. */
+.reader-paragraph {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background-color 0.15s, color 0.15s;
+  outline: none;
+}
+
+.reader-paragraph:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.reader-paragraph:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-bright);
+}
+
+/* El párrafo actual se lee en color pleno y con una guía a la izquierda. */
+.reader-paragraph.active {
+  color: var(--text);
+  cursor: default;
+  border-left: 3px solid var(--accent-bright);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* ── Índice de capítulos (drawer) ───────────────────────────────────────── */
+.chapter-list-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  z-index: 50;
+}
+
+.chapter-list {
+  width: min(340px, 85vw);
+  height: 100%;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: chapter-list-in 0.18s ease-out;
+}
+
+@keyframes chapter-list-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.chapter-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid var(--bg-elevated);
+}
+
+.chapter-list-header h3 {
+  font-size: 1rem;
+}
+
+.chapter-list-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.chapter-list-close:hover {
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+
+.chapter-list-items {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chapter-list-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  transition: background-color 0.15s;
+}
+
+.chapter-list-item:hover {
+  background: var(--bg-elevated);
+}
+
+.chapter-list-item.active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.chapter-list-num {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  min-width: 1.5rem;
+}
+
+.chapter-list-item.active .chapter-list-num {
+  color: var(--accent-bright);
+}
+
+.chapter-list-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

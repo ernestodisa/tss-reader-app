@@ -4,3 +4,4 @@ export * from './tts';
 export * from './errors';
 export * from './cache';
 export * from './player';
+export * from './annotations';

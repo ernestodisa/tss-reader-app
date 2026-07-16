@@ -50,6 +50,72 @@ curl -X POST https://speechify-tts.<your-subdomain>.workers.dev/tts \
   --output test.mp3
 ```
 
+### 1.5 Configure Optional TTS Engines (ElevenLabs / OpenAI)
+
+The Worker supports three TTS engines: **edge** (default, no key required),
+**elevenlabs**, and **openai**. The last two need API keys, stored as Worker
+secrets (never committed, never placed in `wrangler.toml`):
+
+```bash
+cd worker
+npx wrangler secret put ELEVENLABS_API_KEY   # paste your ElevenLabs key when prompted
+npx wrangler secret put OPENAI_API_KEY        # paste your OpenAI key when prompted
+```
+
+To remove a key later: `npx wrangler secret delete OPENAI_API_KEY`.
+
+When a key is absent, that engine reports `enabled: false` on `GET /engines`,
+and any `/tts` request naming it returns `400 engine_not_configured`. Edge always
+works. Redeploy is **not** required after adding a secret — it takes effect on
+the next request.
+
+### 1.6 API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/tts` | Synthesize speech. Body: `{ text, voiceId, speed, format, engine? }`. `engine` is `"edge"` (default), `"elevenlabs"`, or `"openai"`. Returns audio bytes plus `X-Words`, `X-Duration`, `X-Chunk-Id`, `X-Cache` headers. |
+| `GET` | `/engines` | Lists engines and representative voices: `{ engines: [{ id, enabled, voices: [{ id, name, language, gender }] }] }`. `enabled` reflects whether the engine's key is configured. |
+| `GET` | `/sync/{code}` | Fetch previously saved progress for `{code}`. `404` if none. |
+| `PUT` | `/sync/{code}` | Save a JSON progress payload (≤ 64KB) under `{code}`. |
+
+**Engine timing notes:** ElevenLabs uses the `with-timestamps` endpoint and
+returns real word timings (derived from char-level alignment). OpenAI's speech
+API returns **no** timings, so the Worker generates synthetic word timings
+proportional to word length over an *estimated* duration (~15 chars/sec adjusted
+by speed) — karaoke highlighting may drift slightly on long chunks.
+
+Example — list engines and use OpenAI:
+
+```bash
+curl https://speechify-tts.<your-subdomain>.workers.dev/engines
+
+curl -X POST https://speechify-tts.<your-subdomain>.workers.dev/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hola mundo","voiceId":"nova","speed":1.0,"format":"mp3","engine":"openai"}' \
+  --output test-openai.mp3
+```
+
+### 1.7 Progress Sync (best-effort, unauthenticated)
+
+`GET`/`PUT /sync/{code}` let a user carry reading progress across devices by
+sharing a code (8–32 alphanumeric characters). Payloads are stored under
+`sync/{code}` in the same R2 bucket.
+
+> **Security tradeoff:** there is **no authentication**. Anyone who knows a code
+> can read or overwrite its payload. The code is a shared secret chosen by the
+> user — treat it like a bookmark, not a credential, and never store sensitive
+> data in the synced payload.
+
+```bash
+# Save progress
+curl -X PUT https://speechify-tts.<your-subdomain>.workers.dev/sync/mycode123 \
+  -H "Content-Type: application/json" \
+  -d '{"documentId":"abc","chunkIndex":42}'
+
+# Restore progress
+curl https://speechify-tts.<your-subdomain>.workers.dev/sync/mycode123
+```
+
 ---
 
 ## 2. Deploy the Frontend PWA

@@ -8,6 +8,8 @@ export interface ExtractedDoc {
   totalCharacters: number;
   estimatedDurationMs?: number;
   coverImage?: ArrayBuffer;
+  /** Portada del ePub como dataURL JPEG reducido (~200px de ancho). undefined para PDF. */
+  coverDataUrl?: string;
   metadata?: Record<string, string>;
 }
 

@@ -10,6 +10,8 @@ export type EndCallback = () => void;
 class PlayerAgent {
   private ctx: AudioContext | null = null;
   private sourceNode: AudioBufferSourceNode | null = null;
+  private gainNode: GainNode | null = null;
+  private _volume: number = 1;
   private wordCallback: WordChangeCallback | null = null;
   private endCallback: EndCallback | null = null;
   private _currentParagraphId: string | null = null;
@@ -27,6 +29,19 @@ class PlayerAgent {
     return this.ctx;
   }
 
+  // Nodo de ganancia persistente (source → gain → destination). Se crea una
+  // sola vez por AudioContext y sobrevive a cada load(), preservando el volumen
+  // configurado por el usuario entre párrafos.
+  private getGain(): GainNode {
+    const ctx = this.getCtx();
+    if (!this.gainNode) {
+      this.gainNode = ctx.createGain();
+      this.gainNode.gain.value = this._volume;
+      this.gainNode.connect(ctx.destination);
+    }
+    return this.gainNode;
+  }
+
   load(paragraphId: string, audio: AudioBuffer, timings: WordTiming[]): void {
     this.fullStop();
     this._currentParagraphId = paragraphId;
@@ -34,7 +49,8 @@ class PlayerAgent {
     const ctx = this.getCtx();
     this.sourceNode = ctx.createBufferSource();
     this.sourceNode.buffer = audio;
-    this.sourceNode.connect(ctx.destination);
+    // source → gain → destination para que setVolume() afecte la reproducción.
+    this.sourceNode.connect(this.getGain());
 
     const node = this.sourceNode;
     node.onended = () => {
@@ -64,8 +80,26 @@ class PlayerAgent {
   }
 
   resume(): void {
+    // BACKGROUND AUDIO: en móvil, al bloquear la pantalla el navegador suspende
+    // el AudioContext (y con él congela currentTime). No hay forma de mantener
+    // el audio corriendo con la pantalla bloqueada sin un backend distinto
+    // (p. ej. un <audio>/MediaSource con audio pre-renderizado); el AudioContext
+    // de la Web Audio API se suspende por política del SO. La mitigación es que
+    // el handler `play` de Media Session (control de la pantalla de bloqueo)
+    // llame a resume(), que reanuda el contexto y retoma el tracking de palabras.
     this.getCtx().resume();
     this._startWordTracking();
+  }
+
+  setVolume(volume: number): void {
+    this._volume = Math.max(0, Math.min(1, volume));
+    if (this.gainNode) {
+      this.gainNode.gain.value = this._volume;
+    }
+  }
+
+  getVolume(): number {
+    return this._volume;
   }
 
   fullStop(): void {
@@ -102,6 +136,10 @@ class PlayerAgent {
 
   destroy(): void {
     this.fullStop();
+    if (this.gainNode) {
+      try { this.gainNode.disconnect(); } catch { /* already disconnected */ }
+      this.gainNode = null;
+    }
     if (this.ctx) {
       this.ctx.close();
       this.ctx = null;

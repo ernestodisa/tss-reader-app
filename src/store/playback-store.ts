@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { ExtractedDoc, TimingStatus } from '../types';
 
 interface PlaybackStore {
@@ -15,6 +16,7 @@ interface PlaybackStore {
   // Config
   voiceId: string;
   speed: number;
+  volume: number;
   generationId: number;
 
   // Timings
@@ -26,6 +28,7 @@ interface PlaybackStore {
   stop: () => void;
   setVoice: (id: string) => void;
   setSpeed: (speed: number) => void;
+  setVolume: (volume: number) => void;
   setParagraphTiming: (paragraphId: string, status: TimingStatus) => void;
   setWordIndex: (index: number) => void;
   setPositionMs: (ms: number) => void;
@@ -33,10 +36,14 @@ interface PlaybackStore {
   seekToParagraph: (chapterIndex: number, paragraphIndex: number) => void;
   nextParagraph: (doc: ExtractedDoc) => void;
   prevParagraph: (doc: ExtractedDoc) => void;
+  nextChapter: (doc: ExtractedDoc) => void;
+  prevChapter: (doc: ExtractedDoc) => void;
   bumpGeneration: () => void;
 }
 
-export const usePlaybackStore = create<PlaybackStore>((set) => ({
+export const usePlaybackStore = create<PlaybackStore>()(
+  persist(
+    (set) => ({
   chapterIndex: 0,
   paragraphIndex: 0,
   wordIndex: 0,
@@ -45,6 +52,7 @@ export const usePlaybackStore = create<PlaybackStore>((set) => ({
   isBuffering: false,
   voiceId: 'es-MX-DaliaNeural',
   speed: 1.0,
+  volume: 1.0,
   generationId: 0,
   timingsByParagraph: new Map(),
 
@@ -61,6 +69,12 @@ export const usePlaybackStore = create<PlaybackStore>((set) => ({
     speed,
     generationId: s.generationId + 1,
   })),
+
+  // El volumen NO bumpea generación: es ganancia en vivo sobre el mismo audio,
+  // no requiere re-fetch de TTS como voiceId/speed.
+  setVolume: (volume: number) => set({
+    volume: Math.max(0, Math.min(1, volume)),
+  }),
 
   setParagraphTiming: (paragraphId, status) => set((s) => {
     const newMap = new Map(s.timingsByParagraph);
@@ -113,5 +127,44 @@ export const usePlaybackStore = create<PlaybackStore>((set) => ({
     return {};
   }),
 
+  // Salto por capítulo: van al párrafo 0 del capítulo destino. Mismo patrón que
+  // nextParagraph (sin bump de generación; el re-fetch lo dispara el PlayerBar
+  // vía loadAndPlayParagraph con el generationId actual tras el fullStop).
+  nextChapter: (doc: ExtractedDoc) => set((s) => {
+    if (s.chapterIndex < doc.chapters.length - 1) {
+      return {
+        chapterIndex: s.chapterIndex + 1,
+        paragraphIndex: 0,
+        wordIndex: 0,
+        positionMs: 0,
+      };
+    }
+    return {}; // Ya en el último capítulo
+  }),
+
+  prevChapter: (_doc: ExtractedDoc) => set((s) => {
+    if (s.chapterIndex > 0) {
+      return {
+        chapterIndex: s.chapterIndex - 1,
+        paragraphIndex: 0,
+        wordIndex: 0,
+        positionMs: 0,
+      };
+    }
+    return {}; // Ya en el primer capítulo
+  }),
+
   bumpGeneration: () => set((s) => ({ generationId: s.generationId + 1 })),
-}));
+    }),
+    {
+      name: 'speechify-playback',
+      // CUIDADO: timingsByParagraph es un Map no serializable — NO lo persistas.
+      // Solo persistimos preferencias del usuario.
+      partialize: (s) => ({
+        voiceId: s.voiceId,
+        speed: s.speed,
+        volume: s.volume,
+      }),
+    },
+  ),
+);

@@ -8,6 +8,9 @@ export function hashString(input: string): string {
   return Math.abs(hash).toString(16);
 }
 
-export function chunkId(text: string, voiceId: string, speed: number): string {
-  return hashString(`${text}::${voiceId}::${speed}`);
+// El engine forma parte de la clave: el mismo texto+voz+velocidad produce audio
+// distinto según el motor (edge/elevenlabs/openai), así que no deben colisionar
+// en la caché del cliente (rawAudioCache/cache-store van indexados por chunk.id).
+export function chunkId(text: string, voiceId: string, speed: number, engine: string): string {
+  return hashString(`${engine}::${text}::${voiceId}::${speed}`);
 }

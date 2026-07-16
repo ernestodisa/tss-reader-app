@@ -1,10 +1,16 @@
 import { chunkId } from '../lib/hash';
+import { decodeVoiceId } from '../types/tts';
 import type { AgentResult, ChunkJob, ChunkPlan, TTSChunk, PipelineError } from '../types';
 
 const DEFAULT_MAX_CHARS = 500;
 
 export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
   const maxChars = job.maxChunkChars || DEFAULT_MAX_CHARS;
+
+  // El job.voiceId puede venir codificado como "engine::voiceId" (lo que setea
+  // VoiceSelector) o crudo (default/persistido legado). Se decodifica una vez:
+  // los chunks llevan el voiceId crudo que espera el worker + el motor aparte.
+  const { engine, voiceId } = decodeVoiceId(job.voiceId);
 
   try {
     const chunks: TTSChunk[] = [];
@@ -13,11 +19,12 @@ export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
     if (job.paragraphText.length <= maxChars) {
       // Single chunk — no splitting needed
       const chunk: TTSChunk = {
-        id: chunkId(job.paragraphText, job.voiceId, job.speed),
+        id: chunkId(job.paragraphText, voiceId, job.speed, engine),
         paragraphId: job.paragraphId,
         chunkIndex: 0,
         text: job.paragraphText,
-        voiceId: job.voiceId,
+        voiceId,
+        engine,
         speed: job.speed,
       };
       chunks.push(chunk);
@@ -38,11 +45,12 @@ export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
         if (currentChunkText.length + sentence.length + 1 > maxChars && currentChunkText.length > 0) {
           // Flush current chunk
           const chunk: TTSChunk = {
-            id: chunkId(currentChunkText, job.voiceId, job.speed),
+            id: chunkId(currentChunkText, voiceId, job.speed, engine),
             paragraphId: job.paragraphId,
             chunkIndex: currentChunkIndex,
             text: currentChunkText.trim(),
-            voiceId: job.voiceId,
+            voiceId,
+            engine,
             speed: job.speed,
           };
           chunks.push(chunk);
@@ -63,11 +71,12 @@ export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
       // Flush remaining
       if (currentChunkText.trim()) {
         const chunk: TTSChunk = {
-          id: chunkId(currentChunkText, job.voiceId, job.speed),
+          id: chunkId(currentChunkText, voiceId, job.speed, engine),
           paragraphId: job.paragraphId,
           chunkIndex: currentChunkIndex,
           text: currentChunkText.trim(),
-          voiceId: job.voiceId,
+          voiceId,
+          engine,
           speed: job.speed,
         };
         chunks.push(chunk);

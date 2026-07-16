@@ -1,9 +1,14 @@
+import type { EngineId } from './tts';
+
 export interface TTSChunk {
   id: string;
   paragraphId: string;
   chunkIndex: number;
   text: string;
+  /** voiceId "crudo" que espera el worker (sin prefijo de motor). */
   voiceId: string;
+  /** Motor TTS resuelto para este chunk (decodificado del voiceId del store). */
+  engine: EngineId;
   speed: number;
 }
 

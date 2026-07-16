@@ -31,6 +31,10 @@ export async function extractDocument(file: File): Promise<AgentResult<Extracted
       ? (raw as unknown as { totalPages: number }).totalPages
       : undefined;
 
+    const coverDataUrl = isPdf
+      ? undefined
+      : (raw as unknown as { coverDataUrl?: string }).coverDataUrl;
+
     const doc: ExtractedDoc = {
       title: raw.title,
       author: raw.author,
@@ -39,6 +43,7 @@ export async function extractDocument(file: File): Promise<AgentResult<Extracted
       totalPages,
       totalCharacters,
       estimatedDurationMs: Math.round(totalCharacters / 15 * 1000), // ~15 chars/sec at 1x
+      coverDataUrl,
     };
 
     return { success: true, data: doc };

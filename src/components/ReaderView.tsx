@@ -1,32 +1,218 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDocument } from '../hooks/useDocument';
 import { usePlayback } from '../hooks/usePlayback';
+import { usePlaybackStore } from '../store/playback-store';
+import { useDocumentStore } from '../store/document-store';
+import { useLibraryStore } from '../store/library-store';
+import { playerAgent } from '../agents/player';
 import { KaraokeText } from './KaraokeText';
+import { ChapterList } from './ChapterList';
 import { PlayerBar } from './PlayerBar';
+import { ExportButton } from './ExportButton';
+import { BookmarkButton } from './BookmarkButton';
+import { AnnotationsPanel } from './AnnotationsPanel';
+
+// Virtualización suave: por debajo de este umbral se renderiza el capítulo
+// completo (lo normal). Por encima, se renderiza una ventana alrededor del
+// scroll con espaciadores de altura estimada arriba/abajo. Sin dependencias.
+const VIRTUALIZE_THRESHOLD = 300;
+const EST_PARAGRAPH_HEIGHT = 90; // px, estimación gruesa para los espaciadores
+const OVERSCAN = 12; // párrafos extra renderizados fuera de viewport a cada lado
+const MANUAL_SCROLL_GUARD_MS = 3000; // no forzar auto-scroll si el usuario scrolleó hace <3s
+const PROGRAMMATIC_SCROLL_MS = 800; // ventana durante la que el scroll suave se considera nuestro
 
 export function ReaderView() {
   const { doc } = useDocument();
   const { chapterIndex, paragraphIndex } = usePlayback();
+  const bookId = useDocumentStore((s) => s.currentBookId);
+  const [showChapters, setShowChapters] = useState(false);
+  const [showAnnotations, setShowAnnotations] = useState(false);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLDivElement>(null);
+  const lastManualScrollRef = useRef(0);
+  const programmaticUntilRef = useRef(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(0);
+
+  const chapter = doc?.chapters[chapterIndex];
+  const paragraphs = chapter?.paragraphs ?? [];
+  const total = paragraphs.length;
+  const virtualize = total > VIRTUALIZE_THRESHOLD;
+
+  // Rango de la ventana virtual [start, end). Sin virtualización = capítulo entero.
+  const [start, end] = useMemo<[number, number]>(() => {
+    if (!virtualize) return [0, total];
+    const h = viewportH || 600;
+    let s = Math.floor(scrollTop / EST_PARAGRAPH_HEIGHT) - OVERSCAN;
+    let e = Math.ceil((scrollTop + h) / EST_PARAGRAPH_HEIGHT) + OVERSCAN;
+    s = Math.max(0, s);
+    e = Math.min(total, e);
+    return [s, e];
+  }, [virtualize, scrollTop, viewportH, total]);
+
+  // ── Scroll manual vs programático ────────────────────────────────────────
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setScrollTop(el.scrollTop);
+    if (el.clientHeight !== viewportH) setViewportH(el.clientHeight);
+    // Si el scroll no lo disparamos nosotros, es del usuario → arma el guard.
+    if (Date.now() >= programmaticUntilRef.current) {
+      lastManualScrollRef.current = Date.now();
+    }
+  }, [viewportH]);
+
+  // Mide el viewport al montar / cambiar de doc.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) setViewportH(el.clientHeight);
+  }, [doc]);
+
+  // ── Auto-scroll al párrafo activo cuando avanza la reproducción ──────────
+  // Guard: si el usuario scrolleó manualmente en los últimos ~3s, no peleamos.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (Date.now() - lastManualScrollRef.current < MANUAL_SCROLL_GUARD_MS) return;
+
+    programmaticUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS;
+
+    if (virtualize) {
+      // El párrafo activo puede no estar en el DOM; posiciona la ventana por
+      // altura estimada para centrarlo, y el render seguirá al nuevo scrollTop.
+      const target = paragraphIndex * EST_PARAGRAPH_HEIGHT - el.clientHeight / 2;
+      el.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+    } else {
+      activeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    // Solo cuando cambia la POSICIÓN (avance/salto), no en cada palabra.
+  }, [chapterIndex, paragraphIndex, virtualize]);
+
+  // Al cambiar de capítulo, reinicia el scroll al inicio y limpia el guard.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      programmaticUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS;
+      el.scrollTop = 0;
+      setScrollTop(0);
+    }
+    lastManualScrollRef.current = 0;
+  }, [chapterIndex]);
+
+  // ── Click en párrafo → posiciona ahí; reproduce solo si estaba sonando ───
+  const handleParagraphClick = useCallback(
+    (i: number) => {
+      const wasPlaying = usePlaybackStore.getState().isPlaying;
+      // Corta el audio en curso antes de reposicionar.
+      playerAgent.fullStop();
+      usePlaybackStore.getState().seekToParagraph(chapterIndex, i);
+      // seekToParagraph resetea posición y bumpea generación pero NO toca
+      // isPlaying. Reafirmamos la intención: seguir sonando o quedar en pausa.
+      if (wasPlaying) usePlaybackStore.getState().play();
+      else usePlaybackStore.getState().pause();
+    },
+    [chapterIndex],
+  );
+
+  // ── Click en capítulo (drawer) → salta al párrafo 0 del capítulo ─────────
+  const handleChapterSelect = useCallback((idx: number) => {
+    const wasPlaying = usePlaybackStore.getState().isPlaying;
+    playerAgent.fullStop();
+    usePlaybackStore.getState().seekToParagraph(idx, 0);
+    if (wasPlaying) usePlaybackStore.getState().play();
+    else usePlaybackStore.getState().pause();
+    setShowChapters(false);
+  }, []);
+
+  // Persiste el progreso de lectura en la biblioteca (lastRead* + updatedAt) para
+  // que reabrir el libro y la sincronización entre dispositivos retomen la posición.
+  useEffect(() => {
+    if (!bookId) return;
+    useLibraryStore.getState().updateProgress(bookId, chapterIndex, paragraphIndex);
+  }, [bookId, chapterIndex, paragraphIndex]);
 
   if (!doc) return null;
-
-  const chapter = doc.chapters[chapterIndex];
   if (!chapter) return <p>Capítulo no encontrado</p>;
 
-  // Render current paragraph + surrounding context
-  const currentParagraph = chapter.paragraphs[paragraphIndex];
+  const topSpacer = virtualize ? start * EST_PARAGRAPH_HEIGHT : 0;
+  const bottomSpacer = virtualize ? (total - end) * EST_PARAGRAPH_HEIGHT : 0;
 
   return (
     <div className="reader-view">
       <div className="reader-header">
+        <button
+          type="button"
+          className="chapter-toggle"
+          onClick={() => setShowChapters((v) => !v)}
+          aria-label="Índice de capítulos"
+          aria-expanded={showChapters}
+          title="Índice de capítulos"
+        >
+          ☰
+        </button>
         <h2>{chapter.title}</h2>
         <span className="progress">
-          {chapterIndex + 1}/{doc.chapters.length} · {paragraphIndex + 1}/{chapter.paragraphs.length}
+          {chapterIndex + 1}/{doc.chapters.length} · {paragraphIndex + 1}/{total}
         </span>
+        <div className="reader-header-actions">
+          {bookId && <BookmarkButton bookId={bookId} />}
+          {bookId && (
+            <button
+              type="button"
+              className="annotations-toggle"
+              onClick={() => setShowAnnotations((v) => !v)}
+              aria-label="Marcadores y notas"
+              aria-expanded={showAnnotations}
+              title="Marcadores y notas"
+            >
+              🔖
+            </button>
+          )}
+          <ExportButton />
+        </div>
       </div>
 
-      <div className="reader-content">
-        {currentParagraph && <KaraokeText paragraph={currentParagraph} />}
+      <div className="reader-content" ref={scrollRef} onScroll={handleScroll}>
+        {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden="true" />}
+        {paragraphs.slice(start, end).map((p, k) => {
+          const i = start + k;
+          const isActivePar = i === paragraphIndex;
+          return (
+            <div
+              key={p.id}
+              ref={isActivePar ? activeRef : undefined}
+              className={`reader-paragraph${isActivePar ? ' active' : ''}`}
+              role="button"
+              tabIndex={0}
+              aria-current={isActivePar ? 'true' : undefined}
+              onClick={() => handleParagraphClick(i)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleParagraphClick(i);
+                }
+              }}
+            >
+              {isActivePar ? <KaraokeText paragraph={p} isCurrent /> : p.text}
+            </div>
+          );
+        })}
+        {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden="true" />}
       </div>
+
+      {showChapters && (
+        <ChapterList
+          chapters={doc.chapters}
+          currentIndex={chapterIndex}
+          onSelect={handleChapterSelect}
+          onClose={() => setShowChapters(false)}
+        />
+      )}
+
+      {showAnnotations && bookId && (
+        <AnnotationsPanel bookId={bookId} onClose={() => setShowAnnotations(false)} />
+      )}
 
       <PlayerBar doc={doc} />
     </div>

@@ -4,14 +4,20 @@ import type { ExtractedDoc } from '../types';
 
 interface DocumentStore {
   doc: ExtractedDoc | null;
+  /** id del libro abierto en la biblioteca (LibraryEntry.id). Lo consumen los
+   *  marcadores/notas (annotations-store) y el guardado de progreso. Se setea al
+   *  importar (ImportDropzone) o al abrir desde la biblioteca (Library). */
+  currentBookId: string | null;
   isLoading: boolean;
   error: string | null;
   loadDocument: (file: File) => Promise<boolean>;
+  setCurrentBookId: (id: string | null) => void;
   unloadDocument: () => void;
 }
 
 export const useDocumentStore = create<DocumentStore>((set) => ({
   doc: null,
+  currentBookId: null,
   isLoading: false,
   error: null,
 
@@ -27,7 +33,9 @@ export const useDocumentStore = create<DocumentStore>((set) => ({
     }
   },
 
+  setCurrentBookId: (id: string | null) => set({ currentBookId: id }),
+
   unloadDocument: () => {
-    set({ doc: null, error: null, isLoading: false });
+    set({ doc: null, currentBookId: null, error: null, isLoading: false });
   },
 }));

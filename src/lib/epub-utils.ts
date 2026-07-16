@@ -3,7 +3,9 @@ import type { Chapter, Paragraph } from '../types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export async function extractEPub(file: File): Promise<{ title: string; author?: string; chapters: Chapter[] }> {
+export async function extractEPub(
+  file: File
+): Promise<{ title: string; author?: string; chapters: Chapter[]; coverDataUrl?: string }> {
   const arrayBuffer = await file.arrayBuffer();
   const book = ePub(arrayBuffer);
 
@@ -12,6 +14,8 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
 
   const title = book.packaging?.metadata?.title || file.name.replace(/\.epub$/i, '');
   const author = book.packaging?.metadata?.creator;
+
+  const coverDataUrl = await extractCoverDataUrl(book);
 
   const chapters: Chapter[] = [];
 
@@ -28,8 +32,13 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
 
   if (items.length === 0) {
     book.destroy();
-    return { title, author, chapters };
+    return { title, author, chapters, coverDataUrl };
   }
+
+  // Recolecta párrafos crudos por si el spine no produce capítulos (edge
+  // case: EPUB sin estructura de capítulos detectable) para armar un
+  // capítulo único "Contenido" al final.
+  const fallbackParagraphTexts: string[] = [];
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -45,7 +54,7 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
 
       const body = doc.body || doc.documentElement || (typeof doc.querySelectorAll === 'function' ? doc : null);
       if (!body) {
-        item.unload();
+        item.unload?.();
         continue;
       }
 
@@ -69,9 +78,11 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
       }
 
       if (paraTexts.length === 0) {
-        item.unload();
+        item.unload?.();
         continue;
       }
+
+      fallbackParagraphTexts.push(...paraTexts);
 
       const paragraphs: Paragraph[] = paraTexts.map((paraText: string, j: number) => ({
         id: `epub-p-${i}-${j}`,
@@ -89,13 +100,104 @@ export async function extractEPub(file: File): Promise<{ title: string; author?:
         totalCharacters: paragraphs.reduce((sum, p) => sum + p.text.length, 0),
       });
 
-      item.unload();
+      item.unload?.();
     } catch {
-      // Skip items that fail to load
+      // El item falló con el flujo normal (item.load) — intenta un
+      // book.load directo sobre el href como último recurso para no
+      // perder texto que sí existe en el archivo.
+      try {
+        const doc: any = await book.load(item.href);
+        if (doc) {
+          const body = doc.body || doc.documentElement || (typeof doc.querySelectorAll === 'function' ? doc : null);
+          const text: string = body?.textContent || '';
+          const texts = text
+            .split(/\n+/)
+            .map((p: string) => p.trim())
+            .filter((p: string) => p.length > 2);
+          fallbackParagraphTexts.push(...texts);
+        }
+      } catch {
+        // Verdaderamente ilegible — se ignora.
+      }
       continue;
     }
   }
 
+  // Edge case: el spine se iteró pero no se detectaron capítulos
+  // (chapters.length === 0), aunque sí se pudo extraer texto de algún
+  // lado. El spec exige no perder ese contenido: se arma un capítulo
+  // único "Contenido" con todos los párrafos recolectados.
+  if (chapters.length === 0 && fallbackParagraphTexts.length > 0) {
+    const paragraphs: Paragraph[] = fallbackParagraphTexts.map((paraText, j) => ({
+      id: `epub-p-0-${j}`,
+      text: paraText,
+      chapterId: 'epub-ch-0',
+    }));
+
+    chapters.push({
+      id: 'epub-ch-0',
+      title: 'Contenido',
+      paragraphs,
+      index: 1,
+      totalCharacters: paragraphs.reduce((sum, p) => sum + p.text.length, 0),
+    });
+  }
+
   book.destroy();
-  return { title, author, chapters };
+  return { title, author, chapters, coverDataUrl };
+}
+
+/**
+ * Extrae la portada del ePub como dataURL JPEG reducido (~200px de ancho).
+ * Intenta book.coverUrl() primero (blob URL de epubjs); si falla, busca en
+ * el manifest el item con properties 'cover-image'. Libera el blob URL
+ * generado en cualquier caso.
+ */
+async function extractCoverDataUrl(book: any): Promise<string | undefined> {
+  let blobUrl: string | undefined;
+
+  try {
+    blobUrl = await book.coverUrl();
+
+    if (!blobUrl) {
+      // Fallback: busca en el manifest el item marcado como cover-image
+      const manifest = book.packaging?.manifest;
+      const coverItem = manifest
+        ? Object.values(manifest).find((it: any) => it?.properties?.includes?.('cover-image'))
+        : undefined;
+      if (coverItem && typeof (coverItem as any).href === 'string') {
+        const blob: Blob = await book.archive.getBlob((coverItem as any).href);
+        blobUrl = URL.createObjectURL(blob);
+      }
+    }
+
+    if (!blobUrl) return undefined;
+
+    return await new Promise<string | undefined>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const scale = 200 / img.width;
+          const canvas = document.createElement('canvas');
+          canvas.width = 200;
+          canvas.height = Math.round(img.height * scale) || 1;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(undefined);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        } catch {
+          resolve(undefined);
+        }
+      };
+      img.onerror = () => resolve(undefined);
+      img.src = blobUrl as string;
+    });
+  } catch {
+    return undefined;
+  } finally {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+  }
 }

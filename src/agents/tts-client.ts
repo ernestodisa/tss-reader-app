@@ -45,6 +45,7 @@ export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse
       body: JSON.stringify({
         text: chunk.text,
         voiceId: chunk.voiceId,
+        engine: chunk.engine,
         speed: chunk.speed,
         format: 'mp3',
       }),

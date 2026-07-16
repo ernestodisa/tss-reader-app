@@ -1,28 +1,30 @@
-import { useRef, useEffect } from 'react';
 import { useKaraoke } from '../hooks/useKaraoke';
 import { tokenize } from '../lib/tokenizer';
 import type { Paragraph } from '../types';
 
 interface KaraokeTextProps {
   paragraph: Paragraph;
+  /**
+   * ¿Es este el párrafo posicionado actualmente? Solo el actual resalta palabra.
+   * Se deriva en ReaderView desde chapterIndex/paragraphIndex del store.
+   */
+  isCurrent?: boolean;
 }
 
-export function KaraokeText({ paragraph }: KaraokeTextProps) {
-  const { wordIndex, isActive } = useKaraoke(paragraph.id);
-  const containerRef = useRef<HTMLDivElement>(null);
+export function KaraokeText({ paragraph, isCurrent = true }: KaraokeTextProps) {
+  const { wordIndex, isActive } = useKaraoke(paragraph.id, isCurrent);
   const tokens = tokenize(paragraph.text);
 
-  // Auto-scroll to keep active word visible
-  useEffect(() => {
-    if (!isActive || wordIndex < 0) return;
-    const activeSpan = containerRef.current?.querySelector(`[data-word="${wordIndex}"]`);
-    activeSpan?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [wordIndex, isActive]);
+  // NOTA: el auto-scroll ya NO vive aquí. Antes KaraokeText hacía
+  // scrollIntoView por PALABRA en cada tick, lo que peleaba con el auto-scroll
+  // por párrafo del ReaderView y con el guard de scroll manual (~3s). El
+  // scroll para mantener visible el contenido activo se centraliza en
+  // ReaderView a nivel de párrafo.
 
   // Render text with word spans
   let charCursor = 0;
   return (
-    <div ref={containerRef} className="karaoke-text">
+    <div className="karaoke-text">
       {tokens.map((token) => {
         // Render text between tokens (whitespace)
         const gap = paragraph.text.slice(charCursor, token.charStart);
