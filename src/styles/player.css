@@ -151,6 +151,11 @@
 .fp-voice-pill:hover {
   border-color: var(--accent);
 }
+.fp-voice-mic {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
 .fp-voice-dot {
   width: 7px;
   height: 7px;
@@ -314,7 +319,12 @@
   .fp-voice-pill {
     padding: 8px 11px;
   }
-  .fp-voice-dot {
+  .fp-voice-mic {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.fp-voice-dot {
     width: 12px;
     height: 12px;
   }
@@ -365,13 +375,7 @@
   }
 }
 
-/* La píldora más pegada al borde inferior (estaba muy al centro visual). */
+/* Píldora pegada al fondo: solo respeta el home indicator (mínimo 8px). */
 .fp-player {
-  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-}
-
-@media (max-width: 600px) {
-  .fp-player {
-    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
-  }
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
 }

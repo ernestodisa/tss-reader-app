@@ -110,7 +110,10 @@ a {
   /* Anclado al viewport: el scroll vive DENTRO de cada vista (app-main para
      la biblioteca, reader-content para el lector), nunca en el body — así el
      player flotante y el sidebar quedan fijos sin doble scrollbar. */
-  height: 100%;
+  height: 100vh;
+  /* iOS standalone/Safari: el viewport dinámico evita que un 100% heredado
+     difiera de la ventana visual real (la píldora fixed quedaba "flotando"). */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--bg);
