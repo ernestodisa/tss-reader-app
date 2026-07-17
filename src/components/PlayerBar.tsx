@@ -9,20 +9,11 @@ import { VoiceSelector } from './VoiceSelector';
 import { SpeedControl } from './SpeedControl';
 import { prefetchNext } from '../lib/prefetch';
 import { setupMediaSession, clearMediaSession } from '../lib/media-session';
-import type { ExtractedDoc, Paragraph, WordTiming } from '../types';
+import type { ExtractedDoc, Paragraph, TTSChunk } from '../types';
 import '../styles/player.css';
 
 // Alturas de las 10 barras decorativas del waveform (spec §Player flotante).
 const WAVE_BARS = [14, 22, 10, 26, 18, 28, 12, 24, 16, 20];
-
-// Duración de un chunk MP3 de Edge TTS sin decodificarlo: el formato es CBR
-// 48 kbps (audio-24khz-48kbitrate-mono-mp3) → 6000 bytes/seg → ms = bytes / 6.
-// Se usa para desplazar los timings de chunks posteriores; el durationMs del
-// worker (última palabra) subestima por el silencio de cola, así que se toma
-// el mayor de los dos.
-function chunkDurationMs(bytes: number, reportedMs: number): number {
-  return Math.max(reportedMs, Math.round(bytes / 6));
-}
 
 interface PlayerBarProps {
   doc: ExtractedDoc;
@@ -68,83 +59,111 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     if (paragraph) void loadAndPlayParagraph(paragraph, voiceId, speed, after.generationId);
   };
 
-  // Load and play current paragraph
+  // ── Reproducción PROGRESIVA por chunk (≈1-2 oraciones) ──────────────────
+  // Antes se descargaban TODOS los chunks del párrafo antes de sonar — en
+  // párrafos grandes el arranque tardaba varios segundos. Ahora la unidad de
+  // reproducción es el chunk: suena el primero de inmediato y los siguientes
+  // se descargan en background y se encadenan al terminar cada uno (el
+  // endCallback distingue "siguiente chunk" de "siguiente párrafo").
+  interface ChunkChain {
+    gen: number;
+    paragraph: Paragraph;
+    chunks: TTSChunk[];
+    nextIndex: number;
+    wordOffset: number; // palabras acumuladas de chunks ya reproducidos
+  }
+  const chainRef = useRef<ChunkChain | null>(null);
+
+  const fetchChunkWithRetry = async (chunk: TTSChunk, gen: number) => {
+    // Errores transitorios (red intermitente, 429) se reintentan solos con
+    // backoff antes de rendirse.
+    let ttsResult = await fetchTTS(chunk);
+    for (let attempt = 1; !ttsResult.success && ttsResult.error.recoverable && attempt <= 3; attempt++) {
+      await new Promise((r) => setTimeout(r, ((!ttsResult.success && ttsResult.error.retryAfterMs) || 1500) * attempt));
+      if (usePlaybackStore.getState().generationId !== gen) return ttsResult;
+      ttsResult = await fetchTTS(chunk);
+    }
+    return ttsResult;
+  };
+
+  /** Reproduce el chunk chainRef.nextIndex y avanza el estado de la cadena. */
+  const playChunkFromChain = async (): Promise<void> => {
+    const chain = chainRef.current;
+    if (!chain) return;
+    if (usePlaybackStore.getState().generationId !== chain.gen) return;
+    const chunk = chain.chunks[chain.nextIndex];
+    if (!chunk) return;
+
+    const ttsResult = await fetchChunkWithRetry(chunk, chain.gen);
+    if (usePlaybackStore.getState().generationId !== chain.gen) return;
+
+    if (!ttsResult.success) {
+      setParagraphTiming(chain.paragraph.id, { status: 'error', error: ttsResult.error });
+      setBuffering(false);
+      if (ttsResult.error.recoverable) {
+        usePlaybackStore.getState().pause();
+      } else {
+        skipToNextAfterError(chain.gen);
+      }
+      return;
+    }
+
+    consecutiveSkipsRef.current = 0;
+    chain.nextIndex += 1;
+    playerAgent.load(chain.paragraph.id, [ttsResult.data.audio], ttsResult.data.words);
+    setParagraphTiming(chain.paragraph.id, { status: 'ready', timings: ttsResult.data.words });
+    playerAgent.play();
+    usePlaybackStore.getState().play();
+    setBuffering(false);
+
+    // Warm-up en background: el SIGUIENTE chunk queda en cache antes de
+    // necesitarse (gap imperceptible al encadenar). El resto llega igual,
+    // chunk a chunk, conforme la cadena avanza.
+    const upcoming = chain.chunks[chain.nextIndex];
+    if (upcoming) {
+      void fetchTTS(upcoming).catch(() => { /* best-effort */ });
+    } else {
+      // Último chunk del párrafo sonando: pre-genera los párrafos siguientes.
+      prefetchNext(doc).catch(() => { /* best-effort */ });
+    }
+  };
+
+  // Load and play current paragraph (arma la cadena de chunks y arranca).
   const loadAndPlayParagraph = async (paragraph: Paragraph, voiceId: string, speed: number, gen: number) => {
     setBuffering(true);
     setParagraphTiming(paragraph.id, { status: 'fetching' });
 
-    // Chunk
     const chunkResult = chunkParagraph({
       paragraphId: paragraph.id,
       paragraphText: paragraph.text,
       voiceId,
       speed,
-      maxChunkChars: 500,
+      maxChunkChars: 250,
       strategy: 'sentence',
     });
 
-    if (!chunkResult.success) {
-      setParagraphTiming(paragraph.id, { status: 'error', error: chunkResult.error });
+    if (!chunkResult.success || chunkResult.data.chunks.length === 0) {
+      if (!chunkResult.success) {
+        setParagraphTiming(paragraph.id, { status: 'error', error: chunkResult.error });
+      }
       setBuffering(false);
-      usePlaybackStore.getState().pause();
+      if (chunkResult.success) {
+        // Párrafo sin contenido sonoro: pasa al siguiente sin trabarse.
+        skipToNextAfterError(gen);
+      } else {
+        usePlaybackStore.getState().pause();
+      }
       return;
     }
 
-    // Fetch TTS for all chunks in the plan
-    const plan = chunkResult.data;
-    const allTimings: WordTiming[] = [];
-    const mp3Parts: ArrayBuffer[] = [];
-    let accumulatedMs = 0; // duration of all previous chunks' audio
-
-    for (const chunk of plan.chunks) {
-      // Check generation — discard if stale
-      if (usePlaybackStore.getState().generationId !== gen) return;
-
-      // Errores transitorios (red intermitente, 429) se reintentan solos con
-      // backoff antes de rendirse — sin esto, una conexión inestable dejaba la
-      // app "trabada" en el mismo párrafo esperando un reintento manual.
-      let ttsResult = await fetchTTS(chunk);
-      for (let attempt = 1; !ttsResult.success && ttsResult.error.recoverable && attempt <= 3; attempt++) {
-        await new Promise((r) => setTimeout(r, (ttsResult.success ? 0 : ttsResult.error.retryAfterMs || 1500) * attempt));
-        if (usePlaybackStore.getState().generationId !== gen) return;
-        ttsResult = await fetchTTS(chunk);
-      }
-      if (!ttsResult.success) {
-        setParagraphTiming(paragraph.id, { status: 'error', error: ttsResult.error });
-        setBuffering(false);
-        if (ttsResult.error.recoverable) {
-          // Red caída de verdad tras 3 reintentos: pausa para reintento manual.
-          usePlaybackStore.getState().pause();
-        } else {
-          // Error permanente de ESTE párrafo: sáltalo para no trabar el libro.
-          skipToNextAfterError(gen);
-        }
-        return;
-      }
-
-      mp3Parts.push(ttsResult.data.audio);
-      // Chunk timings are relative to the chunk's own audio; shift them by the
-      // accumulated duration of previous chunks so offsets are paragraph-absolute.
-      for (const w of ttsResult.data.words) {
-        allTimings.push({ ...w, offsetMs: w.offsetMs + accumulatedMs });
-      }
-      accumulatedMs += chunkDurationMs(ttsResult.data.audio.byteLength, ttsResult.data.durationMs);
-    }
-
-    // Los bytes MP3 CBR son concatenables como un solo stream: el <audio> los
-    // reproduce de corrido y los timings desplazados quedan alineados.
-    if (mp3Parts.length > 0) {
-      consecutiveSkipsRef.current = 0; // párrafo sano: resetea el contador de saltos
-      playerAgent.load(paragraph.id, mp3Parts, allTimings);
-      setParagraphTiming(paragraph.id, { status: 'ready', timings: allTimings });
-      playerAgent.play();
-      // Sync store: real playback just started → button shows ⏸, karaoke activates
-      usePlaybackStore.getState().play();
-      // Start prefetching next paragraphs (best-effort, fire-and-forget)
-      prefetchNext(doc).catch(() => { /* silent fail — prefetch is best-effort */ });
-    }
-
-    setBuffering(false);
+    chainRef.current = {
+      gen,
+      paragraph,
+      chunks: chunkResult.data.chunks,
+      nextIndex: 0,
+      wordOffset: 0,
+    };
+    await playChunkFromChain();
   };
 
   // Handle play/pause toggle
@@ -257,11 +276,26 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   useEffect(() => {
     // BUG FIX #1: wordIndex must be pushed to the store so KaraokeText highlights the active word
     playerAgent.setWordChangeCallback((wordIndex) => {
-      usePlaybackStore.getState().setWordIndex(wordIndex);
+      // El índice llega relativo al CHUNK sonando; el karaoke usa índices
+      // globales del párrafo → se suma el offset de chunks ya reproducidos.
+      const offset = chainRef.current?.wordOffset ?? 0;
+      usePlaybackStore.getState().setWordIndex(offset + wordIndex);
     });
 
-    // BUG FIX #3: auto-advance to next paragraph when audio finishes
+    // Al terminar el audio: siguiente CHUNK del párrafo si la cadena tiene
+    // más; si no, auto-advance al siguiente párrafo.
     playerAgent.setEndCallback(() => {
+      const chain = chainRef.current;
+      if (chain && chain.nextIndex < chain.chunks.length &&
+          usePlaybackStore.getState().generationId === chain.gen) {
+        // Acumula las palabras del chunk que acaba de sonar para el karaoke.
+        const played = chain.chunks[chain.nextIndex - 1];
+        if (played) {
+          chain.wordOffset += played.text.split(/\s+/).filter(Boolean).length;
+        }
+        void playChunkFromChain();
+        return;
+      }
       const store = usePlaybackStore.getState();
       const currentDoc = useDocumentStore.getState().doc || doc;
       if (!currentDoc) {
@@ -303,11 +337,11 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         >
           Cap −
         </button>
-        <button className="fp-round" onClick={handlePrev} disabled={isBuffering} title="Párrafo anterior" aria-label="Párrafo anterior">⏮</button>
+        <button className="fp-round" onClick={handlePrev} disabled={isBuffering} title="Párrafo anterior" aria-label="Párrafo anterior">⏮︎</button>
         <button className="fp-play" onClick={handlePlayPause} disabled={isBuffering} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
           {isBuffering ? '⏳' : isPlaying ? '❚❚' : '▶'}
         </button>
-        <button className="fp-round" onClick={handleNext} disabled={isBuffering} title="Párrafo siguiente" aria-label="Párrafo siguiente">⏭</button>
+        <button className="fp-round" onClick={handleNext} disabled={isBuffering} title="Párrafo siguiente" aria-label="Párrafo siguiente">⏭︎</button>
         <button
           className="fp-chapbtn"
           onClick={handleNextChapter}

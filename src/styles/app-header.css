@@ -113,3 +113,84 @@
     padding-bottom: 12px;
   }
 }
+
+/* ── Botón Biblioteca con icono + menú de apariencia (Aa) ─────────────────── */
+.app-header__lib-icon {
+  flex: 0 0 auto;
+}
+
+.appearance {
+  position: relative;
+}
+
+.appearance__toggle {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-style: italic;
+}
+
+.appearance__menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 220px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 70;
+}
+
+.appearance__row {
+  width: 100%;
+  justify-content: center;
+}
+
+.appearance__section {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.appearance__menu .accent-picker {
+  border-left: none;
+  padding-left: 0;
+  gap: 10px;
+}
+
+.appearance__font-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.appearance__font-value {
+  min-width: 44px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Móvil: Biblioteca queda como icono; el texto se oculta. */
+@media (max-width: 640px) {
+  .app-header__lib-label {
+    display: none;
+  }
+  .app-header__lib {
+    padding: 8px 11px;
+  }
+  .appearance__menu {
+    position: fixed;
+    top: auto;
+    right: 12px;
+    left: 12px;
+    top: calc(64px + env(safe-area-inset-top, 0px));
+    min-width: 0;
+  }
+}

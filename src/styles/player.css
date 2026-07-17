@@ -299,12 +299,35 @@
 
 @media (max-width: 600px) {
   .fp-chapbtn,
-  .fp-voice,
   .fp-vol {
     display: none;
   }
   .fp-player {
     gap: 8px;
+  }
+  /* La voz SÍ se puede cambiar en vertical: la pill queda como icono
+     compacto (solo el puntito de color) y abre el mismo popover. */
+  .fp-voice-name,
+  .fp-voice-engine {
+    display: none;
+  }
+  .fp-voice-pill {
+    padding: 8px 11px;
+  }
+  .fp-voice-dot {
+    width: 12px;
+    height: 12px;
+  }
+  .fp-voice-popover {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    transform: none;
+    flex-wrap: wrap;
+    max-height: 55vh;
+    overflow-y: auto;
   }
 }
 

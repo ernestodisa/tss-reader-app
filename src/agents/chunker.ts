@@ -2,7 +2,8 @@ import { chunkId } from '../lib/hash';
 import { decodeVoiceId } from '../types/tts';
 import type { AgentResult, ChunkJob, ChunkPlan, TTSChunk, PipelineError } from '../types';
 
-const DEFAULT_MAX_CHARS = 500;
+// Unidad procesable ≈ 1-2 oraciones: arranque rápido en párrafos grandes.
+const DEFAULT_MAX_CHARS = 250;
 
 export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
   const maxChars = job.maxChunkChars || DEFAULT_MAX_CHARS;
@@ -116,7 +117,7 @@ function splitBySentence(text: string): string[] {
   // (índices, tablas, texto corrido) y el worker rechaza >2000 chars con
   // text_too_long — el párrafo quedaba atorado para siempre. Partimos las
   // oraciones gigantes por el último espacio antes del límite.
-  const HARD_LIMIT = 450;
+  const HARD_LIMIT = 230;
   const out: string[] = [];
   for (const s of sentences) {
     if (s.length <= HARD_LIMIT) {

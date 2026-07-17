@@ -277,7 +277,7 @@
 
 .reader-paragraph {
   font-family: var(--font-serif);
-  font-size: 22px;
+  font-size: calc(22px * var(--reader-font-scale, 1));
   line-height: 1.9;
   color: var(--ink);
   opacity: 0.35;
@@ -600,7 +600,7 @@
   /* Tipografía móvil del mockup (18.5px/1.85 en vez de 22px/1.9). */
   .reader-paragraph,
   .karaoke-text {
-    font-size: 18.5px;
+    font-size: calc(18.5px * var(--reader-font-scale, 1));
     line-height: 1.85;
   }
 }

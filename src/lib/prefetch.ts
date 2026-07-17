@@ -38,7 +38,7 @@ export async function prefetchNext(doc: ExtractedDoc): Promise<void> {
       paragraphText: paragraph.text,
       voiceId: store.voiceId,
       speed: store.speed,
-      maxChunkChars: 500,
+      maxChunkChars: 250,
       strategy: 'sentence',
     });
 

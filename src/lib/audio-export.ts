@@ -65,7 +65,7 @@ export async function exportChapterMP3(
       paragraphText: paragraph.text,
       voiceId,
       speed,
-      maxChunkChars: 500,
+      maxChunkChars: 250,
       strategy: 'sentence',
     });
 
