@@ -111,6 +111,26 @@ export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
 
 function splitBySentence(text: string): string[] {
   // Split on sentence boundaries while preserving the delimiter
-  const sentences = text.match(/[^.!?]+[.!?]+[\s]*|[^.!?]+$/g);
-  return sentences || [text];
+  const sentences = text.match(/[^.!?]+[.!?]+[\s]*|[^.!?]+$/g) || [text];
+  // Una "oración" sin puntuación puede exceder por sí sola el tope del chunk
+  // (índices, tablas, texto corrido) y el worker rechaza >2000 chars con
+  // text_too_long — el párrafo quedaba atorado para siempre. Partimos las
+  // oraciones gigantes por el último espacio antes del límite.
+  const HARD_LIMIT = 450;
+  const out: string[] = [];
+  for (const s of sentences) {
+    if (s.length <= HARD_LIMIT) {
+      out.push(s);
+      continue;
+    }
+    let rest = s;
+    while (rest.length > HARD_LIMIT) {
+      let cut = rest.lastIndexOf(' ', HARD_LIMIT);
+      if (cut <= 0) cut = HARD_LIMIT; // sin espacios: corte duro
+      out.push(rest.slice(0, cut + 1));
+      rest = rest.slice(cut + 1);
+    }
+    if (rest) out.push(rest);
+  }
+  return out;
 }

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePlayback } from '../hooks/usePlayback';
 import { usePlaybackStore } from '../store/playback-store';
 import { useDocumentStore } from '../store/document-store';
@@ -42,6 +42,32 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     playerAgent.setVolume(volume);
   }, [volume]);
 
+  // Un párrafo con TTS irrecuperable (texto raro, respuesta 4xx) NO debe
+  // congelar el libro: se marca en error y se salta al siguiente, con tope de
+  // saltos consecutivos para no ciclar en un capítulo enteramente malo.
+  const consecutiveSkipsRef = useRef(0);
+  const MAX_CONSECUTIVE_SKIPS = 3;
+
+  const skipToNextAfterError = (gen: number) => {
+    if (usePlaybackStore.getState().generationId !== gen) return;
+    if (consecutiveSkipsRef.current >= MAX_CONSECUTIVE_SKIPS) {
+      usePlaybackStore.getState().pause();
+      return;
+    }
+    consecutiveSkipsRef.current += 1;
+    const store = usePlaybackStore.getState();
+    const before = `${store.chapterIndex}-${store.paragraphIndex}`;
+    store.nextParagraph(doc);
+    const after = usePlaybackStore.getState();
+    if (`${after.chapterIndex}-${after.paragraphIndex}` === before) {
+      usePlaybackStore.getState().pause(); // fin del documento
+      return;
+    }
+    const chapter = doc.chapters[after.chapterIndex];
+    const paragraph = chapter?.paragraphs[after.paragraphIndex];
+    if (paragraph) void loadAndPlayParagraph(paragraph, voiceId, speed, after.generationId);
+  };
+
   // Load and play current paragraph
   const loadAndPlayParagraph = async (paragraph: Paragraph, voiceId: string, speed: number, gen: number) => {
     setBuffering(true);
@@ -78,7 +104,13 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       if (!ttsResult.success) {
         setParagraphTiming(paragraph.id, { status: 'error', error: ttsResult.error });
         setBuffering(false);
-        usePlaybackStore.getState().pause();
+        if (ttsResult.error.recoverable) {
+          // Error transitorio (red, 429): pausa y deja que el usuario reintente.
+          usePlaybackStore.getState().pause();
+        } else {
+          // Error permanente de ESTE párrafo: sáltalo para no trabar el libro.
+          skipToNextAfterError(gen);
+        }
         return;
       }
 
@@ -94,6 +126,7 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     // Los bytes MP3 CBR son concatenables como un solo stream: el <audio> los
     // reproduce de corrido y los timings desplazados quedan alineados.
     if (mp3Parts.length > 0) {
+      consecutiveSkipsRef.current = 0; // párrafo sano: resetea el contador de saltos
       playerAgent.load(paragraph.id, mp3Parts, allTimings);
       setParagraphTiming(paragraph.id, { status: 'ready', timings: allTimings });
       playerAgent.play();
