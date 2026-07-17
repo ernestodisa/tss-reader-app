@@ -4,14 +4,11 @@ import { usePlayback } from '../hooks/usePlayback';
 import { usePlaybackStore } from '../store/playback-store';
 import { useDocumentStore } from '../store/document-store';
 import { useLibraryStore } from '../store/library-store';
-import { useAnnotationsStore } from '../store/annotations-store';
 import { playerAgent } from '../agents/player';
 import '../styles/reader.css';
 import { KaraokeText } from './KaraokeText';
 import { ChapterList } from './ChapterList';
 import { PlayerBar } from './PlayerBar';
-import { ExportButton } from './ExportButton';
-import { BookmarkButton } from './BookmarkButton';
 import { AnnotationsPanel } from './AnnotationsPanel';
 
 // Virtualización suave: por debajo de este umbral se renderiza el capítulo
@@ -28,7 +25,7 @@ export function ReaderView() {
   const { chapterIndex, paragraphIndex } = usePlayback();
   const bookId = useDocumentStore((s) => s.currentBookId);
   const [showChapters, setShowChapters] = useState(false);
-  const [showAnnotations, setShowAnnotations] = useState(false);
+  const showAnnotations = useDocumentStore((s) => s.showAnnotations);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
@@ -161,14 +158,6 @@ export function ReaderView() {
     return () => window.removeEventListener('popstate', onPopState);
   }, [doc, closeReader]);
 
-  // ── Conteo de anotaciones (marcadores + notas) para el botón "Notas · N" ──
-  const annotationCount = useAnnotationsStore((s) =>
-    bookId
-      ? s.bookmarks.filter((b) => b.bookId === bookId).length +
-        s.notes.filter((n) => n.bookId === bookId).length
-      : 0,
-  );
-
   if (!doc) return null;
   if (!chapter) return <p>Capítulo no encontrado</p>;
 
@@ -199,35 +188,22 @@ export function ReaderView() {
               >
                 ☰
               </button>
-              <div>
-                <div className="reader-chapter-kicker">Capítulo {chapterIndex + 1}</div>
-                <h2 className="reader-chapter-title">{chapter.title}</h2>
-              </div>
+              {/* Línea única compacta: "15 · Chapter Five…" (foco en el texto;
+                  las acciones viven ahora en el menú ☆ del AppHeader). */}
+              <h2 className="reader-chapter-title reader-chapter-title--line">
+                <span className="reader-chapter-num">{chapterIndex + 1}</span>
+                <span className="reader-chapter-sep" aria-hidden="true">·</span>
+                {chapter.title}
+              </h2>
             </div>
 
-            <div className="reader-chapter-actions">
-              <span className="reader-progress">
-                {percent}%
-                <span className="reader-progress__detail">
-                  {' '}· Cap. {chapterIndex + 1}/{doc.chapters.length} · párr.{' '}
-                  {paragraphIndex + 1}/{total}
-                </span>
+            <span className="reader-progress">
+              {percent}%
+              <span className="reader-progress__detail">
+                {' '}· Cap. {chapterIndex + 1}/{doc.chapters.length} · párr.{' '}
+                {paragraphIndex + 1}/{total}
               </span>
-              {bookId && <BookmarkButton bookId={bookId} />}
-              {bookId && (
-                <button
-                  type="button"
-                  className="reader-notes-btn"
-                  onClick={() => setShowAnnotations((v) => !v)}
-                  aria-label="Marcadores y notas"
-                  aria-expanded={showAnnotations}
-                  title="Marcadores y notas"
-                >
-                  Notas · {annotationCount}
-                </button>
-              )}
-              <ExportButton />
-            </div>
+            </span>
           </div>
 
           <div className="reader-content" ref={scrollRef} onScroll={handleScroll}>
@@ -269,10 +245,13 @@ export function ReaderView() {
         <>
           <div
             className="annotations-overlay"
-            onClick={() => setShowAnnotations(false)}
+            onClick={() => useDocumentStore.getState().setShowAnnotations(false)}
             aria-hidden="true"
           />
-          <AnnotationsPanel bookId={bookId} onClose={() => setShowAnnotations(false)} />
+          <AnnotationsPanel
+            bookId={bookId}
+            onClose={() => useDocumentStore.getState().setShowAnnotations(false)}
+          />
         </>
       )}
 

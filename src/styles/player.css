@@ -364,3 +364,14 @@
     padding-left: 8px;
   }
 }
+
+/* La píldora más pegada al borde inferior (estaba muy al centro visual). */
+.fp-player {
+  bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 600px) {
+  .fp-player {
+    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+}

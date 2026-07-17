@@ -616,3 +616,42 @@
     padding-bottom: calc(170px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* ═══ Header de capítulo compacto (línea única "15 · Título…") ═══════════ */
+.reader-chapter-title--line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reader-chapter-num {
+  color: var(--accent);
+  font-size: 0.85em;
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.reader-chapter-sep {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+/* Con las acciones fuera (menú ☆ del header), la fila es más baja. */
+.reader-chapter-header {
+  padding-top: 12px;
+  padding-bottom: 10px;
+}
+
+@media (max-width: 680px) {
+  .reader-chapter-header {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .reader-progress {
+    flex: 0 0 auto;
+  }
+}

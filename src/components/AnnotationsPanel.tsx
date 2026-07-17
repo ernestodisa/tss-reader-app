@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAnnotationsStore } from '../store/annotations-store';
 import { usePlaybackStore } from '../store/playback-store';
 import { useDocument } from '../hooks/useDocument';
@@ -17,8 +17,17 @@ interface AnnotationsPanelProps {
  */
 export function AnnotationsPanel({ bookId, onClose }: AnnotationsPanelProps) {
   const { doc } = useDocument();
-  const bookmarks = useAnnotationsStore((s) => s.listBookmarks(bookId));
-  const notes = useAnnotationsStore((s) => s.listNotes(bookId));
+  // OJO: suscribirse a los ARREGLOS crudos y filtrar con useMemo. Un selector
+  // que llama listBookmarks(bookId) devuelve un arreglo NUEVO en cada
+  // evaluación → useSyncExternalStore entra en loop infinito (React #185,
+  // pantalla en blanco al abrir el panel).
+  const allBookmarks = useAnnotationsStore((s) => s.bookmarks);
+  const allNotes = useAnnotationsStore((s) => s.notes);
+  const bookmarks = useMemo(
+    () => allBookmarks.filter((b) => b.bookId === bookId),
+    [allBookmarks, bookId],
+  );
+  const notes = useMemo(() => allNotes.filter((n) => n.bookId === bookId), [allNotes, bookId]);
   const removeBookmark = useAnnotationsStore((s) => s.removeBookmark);
   const removeNote = useAnnotationsStore((s) => s.removeNote);
   const addNote = useAnnotationsStore((s) => s.addNote);
