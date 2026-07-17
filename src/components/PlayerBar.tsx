@@ -100,12 +100,20 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       // Check generation — discard if stale
       if (usePlaybackStore.getState().generationId !== gen) return;
 
-      const ttsResult = await fetchTTS(chunk);
+      // Errores transitorios (red intermitente, 429) se reintentan solos con
+      // backoff antes de rendirse — sin esto, una conexión inestable dejaba la
+      // app "trabada" en el mismo párrafo esperando un reintento manual.
+      let ttsResult = await fetchTTS(chunk);
+      for (let attempt = 1; !ttsResult.success && ttsResult.error.recoverable && attempt <= 3; attempt++) {
+        await new Promise((r) => setTimeout(r, (ttsResult.success ? 0 : ttsResult.error.retryAfterMs || 1500) * attempt));
+        if (usePlaybackStore.getState().generationId !== gen) return;
+        ttsResult = await fetchTTS(chunk);
+      }
       if (!ttsResult.success) {
         setParagraphTiming(paragraph.id, { status: 'error', error: ttsResult.error });
         setBuffering(false);
         if (ttsResult.error.recoverable) {
-          // Error transitorio (red, 429): pausa y deja que el usuario reintente.
+          // Red caída de verdad tras 3 reintentos: pausa para reintento manual.
           usePlaybackStore.getState().pause();
         } else {
           // Error permanente de ESTE párrafo: sáltalo para no trabar el libro.
