@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { usePlayback } from '../hooks/usePlayback';
 import { usePlaybackStore } from '../store/playback-store';
 import { useDocumentStore } from '../store/document-store';
@@ -27,11 +27,17 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     setVolume, setBuffering, setParagraphTiming,
   } = usePlayback();
 
+  // En dispositivos táctiles (iOS/Android) el volumen lo mandan los botones
+  // físicos del sistema: no mostramos slider y la ganancia interna queda en 1
+  // (en iOS audio.volume es no-op, pero en Android un valor persistido <1
+  // atenuaría sin forma de subirlo).
+  const isTouchDevice = useMemo(() => window.matchMedia('(pointer: coarse)').matches, []);
+
   // Aplica el volumen persistido/actual al GainNode del agente. Corre en montaje
   // (restaura la preferencia guardada por zustand persist) y en cada cambio.
   useEffect(() => {
-    playerAgent.setVolume(volume);
-  }, [volume]);
+    playerAgent.setVolume(isTouchDevice ? 1 : volume);
+  }, [volume, isTouchDevice]);
 
   // Un párrafo con TTS irrecuperable (texto raro, respuesta 4xx) NO debe
   // congelar el libro: se marca en error y se salta al siguiente, con tope de
@@ -367,18 +373,20 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         <SpeedControl />
       </div>
 
-      <label className="fp-sep fp-vol" title="Volumen">
-        <span className="fp-vol-label" aria-hidden="true">vol</span>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={volume}
-          aria-label="Volumen"
-          onChange={(e) => setVolume(Number(e.target.value))}
-        />
-      </label>
+      {!isTouchDevice && (
+        <label className="fp-sep fp-vol" title="Volumen">
+          <span className="fp-vol-label" aria-hidden="true">vol</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            aria-label="Volumen"
+            onChange={(e) => setVolume(Number(e.target.value))}
+          />
+        </label>
+      )}
     </div>
   );
 }

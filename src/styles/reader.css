@@ -655,3 +655,41 @@
     flex: 0 0 auto;
   }
 }
+
+/* ═══ Botón temporal "volver a la lectura" ═══════════════════════════════
+   Aparece cuando el scroll manual dejó fuera de pantalla el párrafo activo
+   (la palabra subrayada por el karaoke). Flota centrado justo encima del
+   player; al tocarlo se re-engancha el auto-scroll. */
+.reader-return-pill {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  animation: reader-return-in 160ms ease-out;
+}
+
+.reader-return-pill:active {
+  transform: translateX(-50%) scale(0.97);
+}
+
+@keyframes reader-return-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@media (max-width: 900px) {
+  .reader-return-pill {
+    bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+  }
+}

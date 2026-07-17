@@ -33,6 +33,10 @@ export function ReaderView() {
   const programmaticUntilRef = useRef(0);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(0);
+  // "Despegado": el usuario scrolleó y el párrafo activo (con la palabra
+  // subrayada) quedó fuera de pantalla. Mientras dure, el auto-scroll no pelea
+  // y se muestra un botón temporal para volver a la lectura en voz.
+  const [detached, setDetached] = useState(false);
 
   const chapter = doc?.chapters[chapterIndex];
   const paragraphs = chapter?.paragraphs ?? [];
@@ -50,17 +54,33 @@ export function ReaderView() {
     return [s, e];
   }, [virtualize, scrollTop, viewportH, total]);
 
+  // ¿El párrafo activo está (al menos parcialmente) visible en el contenedor?
+  // Bajo virtualización, si quedó fuera de la ventana renderizada ni siquiera
+  // está en el DOM → definitivamente fuera de pantalla.
+  const isActiveVisible = useCallback((): boolean => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    if (virtualize && (paragraphIndex < start || paragraphIndex >= end)) return false;
+    const node = activeRef.current;
+    if (!node) return false;
+    const c = el.getBoundingClientRect();
+    const r = node.getBoundingClientRect();
+    return r.bottom > c.top && r.top < c.bottom;
+  }, [virtualize, paragraphIndex, start, end]);
+
   // ── Scroll manual vs programático ────────────────────────────────────────
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     setScrollTop(el.scrollTop);
     if (el.clientHeight !== viewportH) setViewportH(el.clientHeight);
-    // Si el scroll no lo disparamos nosotros, es del usuario → arma el guard.
+    // Si el scroll no lo disparamos nosotros, es del usuario → arma el guard
+    // y evalúa si nos "despegó" de la lectura (o si regresó solo al punto).
     if (Date.now() >= programmaticUntilRef.current) {
       lastManualScrollRef.current = Date.now();
+      setDetached(!isActiveVisible());
     }
-  }, [viewportH]);
+  }, [viewportH, isActiveVisible]);
 
   // Mide el viewport al montar / cambiar de doc.
   useEffect(() => {
@@ -70,13 +90,10 @@ export function ReaderView() {
 
   // ── Auto-scroll al párrafo activo cuando avanza la reproducción ──────────
   // Guard: si el usuario scrolleó manualmente en los últimos ~3s, no peleamos.
-  useEffect(() => {
+  const scrollToActive = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (Date.now() - lastManualScrollRef.current < MANUAL_SCROLL_GUARD_MS) return;
-
     programmaticUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS;
-
     if (virtualize) {
       // El párrafo activo puede no estar en el DOM; posiciona la ventana por
       // altura estimada para centrarlo, y el render seguirá al nuevo scrollTop.
@@ -85,8 +102,24 @@ export function ReaderView() {
     } else {
       activeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
+  }, [virtualize, paragraphIndex]);
+
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    // Despegado: el usuario se fue a otra parte del texto a propósito. No
+    // peleamos — el botón "volver a la lectura" es el camino de regreso.
+    if (detached) return;
+    if (Date.now() - lastManualScrollRef.current < MANUAL_SCROLL_GUARD_MS) return;
+    scrollToActive();
     // Solo cuando cambia la POSICIÓN (avance/salto), no en cada palabra.
-  }, [chapterIndex, paragraphIndex, virtualize]);
+  }, [chapterIndex, paragraphIndex, detached, scrollToActive]);
+
+  // Botón temporal "volver a la lectura": re-engancha el seguimiento.
+  const handleReturnToReading = useCallback(() => {
+    setDetached(false);
+    lastManualScrollRef.current = 0;
+    scrollToActive();
+  }, [scrollToActive]);
 
   // Al cambiar de capítulo, reinicia el scroll al inicio y limpia el guard.
   useEffect(() => {
@@ -97,12 +130,15 @@ export function ReaderView() {
       setScrollTop(0);
     }
     lastManualScrollRef.current = 0;
+    setDetached(false);
   }, [chapterIndex]);
 
   // ── Click en párrafo → posiciona ahí; reproduce solo si estaba sonando ───
   const handleParagraphClick = useCallback(
     (i: number) => {
       const wasPlaying = usePlaybackStore.getState().isPlaying;
+      // Reposicionar aquí ES la nueva lectura: re-engancha el seguimiento.
+      setDetached(false);
       // Corta el audio en curso antes de reposicionar.
       playerAgent.fullStop();
       usePlaybackStore.getState().seekToParagraph(chapterIndex, i);
@@ -240,6 +276,17 @@ export function ReaderView() {
           </div>
         </div>
       </div>
+
+      {detached && (
+        <button
+          type="button"
+          className="reader-return-pill"
+          onClick={handleReturnToReading}
+          aria-label="Volver a la palabra que se está leyendo"
+        >
+          ↩ Volver a la lectura
+        </button>
+      )}
 
       {showAnnotations && bookId && (
         <>
