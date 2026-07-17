@@ -23,7 +23,7 @@ interface RawAudioEntry {
  *  descarga offline por capítulo para saber qué falta sin pegar a la red. */
 export async function hasCachedChunk(chunkId: string): Promise<boolean> {
   const raw = await rawAudioCache.get<RawAudioEntry>(`raw:${chunkId}`);
-  if (!raw) return false;
+  if (!raw || raw.value.audio.byteLength === 0) return false;
   const timings = await useCacheStore.getState().getTimings(chunkId);
   return !!timings;
 }
@@ -33,7 +33,12 @@ export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse
   const cachedRaw = await rawAudioCache.get<RawAudioEntry>(`raw:${chunk.id}`);
   const cachedTimings = await useCacheStore.getState().getTimings(chunk.id);
 
-  if (cachedRaw && cachedTimings) {
+  // Entradas envenenadas por el bug del audio vacío (cacheadas ANTES del guard
+  // de abajo): se purgan aquí para que los dispositivos afectados se curen
+  // solos — el miss resultante vuelve a la red por bytes frescos.
+  if (cachedRaw && cachedRaw.value.audio.byteLength === 0) {
+    await rawAudioCache.delete(`raw:${chunk.id}`);
+  } else if (cachedRaw && cachedTimings) {
     return {
       success: true,
       data: {
@@ -93,6 +98,30 @@ export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse
 
     // ── Success: parse response ──────────────────────────────────────
     const audio = await resp.arrayBuffer();
+
+    // Edge TTS ocasionalmente responde 200 con cuerpo VACÍO o truncado (upstream
+    // frágil). Un ArrayBuffer de 0 bytes decodifica a un <audio> con error 4 /
+    // duration NaN: no suena, no dispara `ended`, y la reproducción se queda
+    // muerta o (si es un párrafo multi-chunk) avanza/pausa en falso — sin error
+    // en consola ni toast. Peor aún: si se cachea, cada reintento es un cache-hit
+    // del audio vacío → el fallo se vuelve DETERMINISTA y no vuelve a salir un
+    // POST. Lo tratamos como error RECUPERABLE ANTES de cachear nada: así el
+    // reintento con backoff pega de nuevo a la red (bytes frescos) y el cache
+    // nunca se envenena.
+    if (audio.byteLength === 0) {
+      return {
+        success: false,
+        error: {
+          step: 'tts',
+          chunkId: chunk.id,
+          code: 'empty_audio',
+          message: 'TTS devolvió audio vacío (0 bytes)',
+          recoverable: true,
+          retryAfterMs: 800,
+        },
+      };
+    }
+
     const wordsHeader = resp.headers.get('X-Words') || '[]';
     const durationMs = parseInt(resp.headers.get('X-Duration') || '0', 10);
     // Worker sends X-Words URI-encoded (Latin-1-safe); fall back to raw JSON

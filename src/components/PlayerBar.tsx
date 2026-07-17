@@ -288,6 +288,19 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       usePlaybackStore.getState().setWordIndex(offset + wordIndex);
     });
 
+    // Audio corrupto/indecodificable (raro tras validar bytes en fetchTTS, pero
+    // posible con un MP3 truncado): el <audio> emite `error` y jamás `ended`, así
+    // que sin esto la reproducción moría en silencio. Lo tratamos como chunk
+    // fallido y saltamos hacia adelante (con el tope de saltos consecutivos que
+    // pausa con gracia si un tramo entero está corrupto).
+    playerAgent.setErrorCallback(() => {
+      const chain = chainRef.current;
+      const gen = chain ? chain.gen : usePlaybackStore.getState().generationId;
+      if (usePlaybackStore.getState().generationId !== gen) return;
+      setBuffering(false);
+      skipToNextAfterError(gen);
+    });
+
     // Al terminar el audio: siguiente CHUNK del párrafo si la cadena tiene
     // más; si no, auto-advance al siguiente párrafo.
     playerAgent.setEndCallback(() => {

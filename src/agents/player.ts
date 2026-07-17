@@ -4,6 +4,7 @@ import { WordTiming } from '../types';
 
 export type WordChangeCallback = (wordIndex: number) => void;
 export type EndCallback = () => void;
+export type ErrorCallback = () => void;
 
 // ── PlayerAgent sobre <audio> ─────────────────────────────────────────────
 // Reproduce el MP3 crudo en un HTMLAudioElement en vez de decodificarlo con
@@ -22,6 +23,7 @@ class PlayerAgent {
   private _volume: number = 1;
   private wordCallback: WordChangeCallback | null = null;
   private endCallback: EndCallback | null = null;
+  private errorCallback: ErrorCallback | null = null;
   private _currentParagraphId: string | null = null;
   private _timings: WordTiming[] = [];
   private _rafId: number = 0;
@@ -55,6 +57,18 @@ class PlayerAgent {
       this._timings = [];
       cancelAnimationFrame(this._rafId);
       this.endCallback?.();
+    };
+
+    // Un MP3 corrupto/truncado (upstream frágil) hace que el <audio> emita
+    // `error` (code 4 / duration NaN) y NUNCA dispare `ended`: sin este handler
+    // la reproducción se quedaba muerta en silencio, sin avanzar ni reintentar,
+    // y el usuario veía ▶ sin sonido y sin error visible. Lo enrutamos a la
+    // recuperación del PlayerBar (reintentar/saltar) igual que un chunk fallido.
+    audio.onerror = () => {
+      this._currentParagraphId = null;
+      this._timings = [];
+      cancelAnimationFrame(this._rafId);
+      this.errorCallback?.();
     };
   }
 
@@ -91,9 +105,11 @@ class PlayerAgent {
   fullStop(): void {
     cancelAnimationFrame(this._rafId);
     if (this.audio) {
-      // Desata onended ANTES de parar: un stop manual (next/prev/reload) no
-      // debe disparar el end callback ni auto-avanzar.
+      // Desata onended/onerror ANTES de parar: un stop manual (next/prev/reload)
+      // no debe disparar el end callback ni la recuperación de error (quitar el
+      // src y llamar load() emite un `error` espurio que dispararía un salto).
       this.audio.onended = null;
+      this.audio.onerror = null;
       this.audio.pause();
       this.audio.removeAttribute('src');
       this.audio.load();
@@ -119,6 +135,10 @@ class PlayerAgent {
 
   setEndCallback(cb: EndCallback): void {
     this.endCallback = cb;
+  }
+
+  setErrorCallback(cb: ErrorCallback): void {
+    this.errorCallback = cb;
   }
 
   destroy(): void {
