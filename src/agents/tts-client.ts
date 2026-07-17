@@ -19,6 +19,15 @@ interface RawAudioEntry {
 
 // ── Public API ──────────────────────────────────────────────────────────
 
+/** ¿Este chunk ya está completo en cache (audio crudo + timings)? Lo usa la
+ *  descarga offline por capítulo para saber qué falta sin pegar a la red. */
+export async function hasCachedChunk(chunkId: string): Promise<boolean> {
+  const raw = await rawAudioCache.get<RawAudioEntry>(`raw:${chunkId}`);
+  if (!raw) return false;
+  const timings = await useCacheStore.getState().getTimings(chunkId);
+  return !!timings;
+}
+
 export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse>> {
   // 1. Check client-side cache ─────────────────────────────────────────
   const cachedRaw = await rawAudioCache.get<RawAudioEntry>(`raw:${chunk.id}`);

@@ -693,3 +693,39 @@
     bottom: calc(132px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* ═══ Botón de descarga offline del capítulo ═════════════════════════════ */
+.offline-dl {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  min-width: 34px;
+}
+
+.offline-dl[data-status='done'] {
+  color: var(--accent);
+  border-color: var(--accent);
+  cursor: default;
+}
+
+.offline-dl[data-status='downloading'] {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.offline-dl[data-status='partial'] {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.offline-dl:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

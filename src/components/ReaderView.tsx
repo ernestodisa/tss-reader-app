@@ -10,6 +10,7 @@ import { KaraokeText } from './KaraokeText';
 import { ChapterList } from './ChapterList';
 import { PlayerBar } from './PlayerBar';
 import { AnnotationsPanel } from './AnnotationsPanel';
+import { OfflineDownloadButton } from './OfflineDownloadButton';
 
 // Virtualización suave: por debajo de este umbral se renderiza el capítulo
 // completo (lo normal). Por encima, se renderiza una ventana alrededor del
@@ -232,6 +233,8 @@ export function ReaderView() {
                 {chapter.title}
               </h2>
             </div>
+
+            <OfflineDownloadButton doc={doc} chapterIndex={chapterIndex} />
 
             <span className="reader-progress">
               {percent}%
