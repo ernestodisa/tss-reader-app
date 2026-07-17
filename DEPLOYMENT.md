@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers deploying both the **TTS Worker** (Cloudflare Workers) and the **Frontend PWA** (Cloudflare Pages) for the Speechify Clone.
+This guide covers deploying both the **TTS Worker** (Cloudflare Workers) and the **Frontend PWA** (Cloudflare Pages) for Folio.
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@ npx wrangler login
 
 ```bash
 cd worker
-npx wrangler r2 bucket create speechify-tts-cache
+npx wrangler r2 bucket create folio-tts-cache
 ```
 
 > If the bucket already exists, this command will error safely — you can skip it.
@@ -38,13 +38,13 @@ npx wrangler deploy
 After deployment, note the Worker URL. It will look like:
 
 ```
-https://speechify-tts.<your-subdomain>.workers.dev
+https://folio-tts.<your-subdomain>.workers.dev
 ```
 
 ### 1.4 Verify the Worker
 
 ```bash
-curl -X POST https://speechify-tts.<your-subdomain>.workers.dev/tts \
+curl -X POST https://folio-tts.<your-subdomain>.workers.dev/tts \
   -H "Content-Type: application/json" \
   -d '{"text":"Hello world","voiceId":"en-US-AriaNeural","speed":1.0,"format":"mp3"}' \
   --output test.mp3
@@ -87,9 +87,9 @@ by speed) — karaoke highlighting may drift slightly on long chunks.
 Example — list engines and use OpenAI:
 
 ```bash
-curl https://speechify-tts.<your-subdomain>.workers.dev/engines
+curl https://folio-tts.<your-subdomain>.workers.dev/engines
 
-curl -X POST https://speechify-tts.<your-subdomain>.workers.dev/tts \
+curl -X POST https://folio-tts.<your-subdomain>.workers.dev/tts \
   -H "Content-Type: application/json" \
   -d '{"text":"Hola mundo","voiceId":"nova","speed":1.0,"format":"mp3","engine":"openai"}' \
   --output test-openai.mp3
@@ -108,12 +108,12 @@ sharing a code (8–32 alphanumeric characters). Payloads are stored under
 
 ```bash
 # Save progress
-curl -X PUT https://speechify-tts.<your-subdomain>.workers.dev/sync/mycode123 \
+curl -X PUT https://folio-tts.<your-subdomain>.workers.dev/sync/mycode123 \
   -H "Content-Type: application/json" \
   -d '{"documentId":"abc","chunkIndex":42}'
 
 # Restore progress
-curl https://speechify-tts.<your-subdomain>.workers.dev/sync/mycode123
+curl https://folio-tts.<your-subdomain>.workers.dev/sync/mycode123
 ```
 
 ---
@@ -132,7 +132,7 @@ cp .env.example .env
 Edit `.env` and set `VITE_WORKER_URL` to the Worker URL from step 1.3:
 
 ```
-VITE_WORKER_URL=https://speechify-tts.<your-subdomain>.workers.dev
+VITE_WORKER_URL=https://folio-tts.<your-subdomain>.workers.dev
 ```
 
 ### 2.2 Build the Frontend
@@ -146,17 +146,17 @@ This runs `tsc -b && vite build` and outputs to the `dist/` directory.
 ### 2.3 Deploy to Cloudflare Pages
 
 ```bash
-npx wrangler pages deploy dist --project-name speechify-clone
+npx wrangler pages deploy dist --project-name tss-reader-app
 ```
 
-> If the `speechify-clone` Pages project doesn't exist yet, run `npx wrangler pages project create speechify-clone` first.
+> If the `tss-reader-app` Pages project doesn't exist yet, run `npx wrangler pages project create tss-reader-app` first.
 
 ### 2.4 Verify the Frontend
 
 Open the deployed URL in your browser:
 
 ```
-https://speechify-clone.pages.dev
+https://tss-reader-app.pages.dev
 ```
 
 Or use the custom domain you've configured in Cloudflare Pages settings.
@@ -211,7 +211,7 @@ The Vite dev server defaults to `http://localhost:5173` and the Worker to `http:
 ┌─────────────────────────────────────────────────────────────┐
 │  Cloudflare Workers                                         │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  TTS Worker (speechify-tts)                           │  │
+│  │  TTS Worker (folio-tts)                           │  │
 │  │  • POST /tts — Text-to-speech conversion              │  │
 │  │  • Edge TTS multi-engine (Azure + Browser)            │  │
 │  │  • SSML builder for improved prosody                  │  │
@@ -223,7 +223,7 @@ The Vite dev server defaults to `http://localhost:5173` and the Worker to `http:
 ┌─────────────────────────────────────────────────────────────┐
 │  Cloudflare R2                                              │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  speechify-tts-cache                                  │  │
+│  │  folio-tts-cache                                  │  │
 │  │  • Cached TTS audio (MP3/OGG) keyed by content hash   │  │
 │  │  • Word timing metadata                               │  │
 │  └───────────────────────────────────────────────────────┘  │
@@ -235,7 +235,7 @@ The Vite dev server defaults to `http://localhost:5173` and the Worker to `http:
 ## 6. Troubleshooting
 
 ### "Bucket not found" error during Worker deploy
-Make sure you created the R2 bucket first (step 1.2). The `wrangler.toml` binds to `speechify-tts-cache`.
+Make sure you created the R2 bucket first (step 1.2). The `wrangler.toml` binds to `folio-tts-cache`.
 
 ### Frontend shows "network_error" for TTS requests
 - Verify `VITE_WORKER_URL` in `.env` matches the deployed Worker URL

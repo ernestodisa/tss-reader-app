@@ -1,4 +1,4 @@
-name = "speechify-tts"
+name = "folio-tts"
 main = "src/index.ts"
 compatibility_date = "2024-06-01"
 
@@ -19,3 +19,4 @@ bucket_name = "speechify-tts-cache"
 #   wrangler secret put OPENAI_API_KEY
 # When a secret is absent, that engine reports enabled:false on GET /engines
 # and a request for it returns 400 engine_not_configured. Edge needs no key.
+# NOTA re-branding: bucket físico con datos de producción; ver nota en ../wrangler.toml

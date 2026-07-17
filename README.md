@@ -1,6 +1,6 @@
 # 📖 TSS Reader App
 
-PWA que convierte PDFs y ePubs en audiolibros con síntesis de voz (TTS) y seguimiento visual palabra-por-palabra — estilo Speechify.
+PWA que convierte PDFs y ePubs en audiolibros con síntesis de voz (TTS) y seguimiento visual palabra-por-palabra — al estilo de los grandes audiolectores comerciales.
 
 ## ✨ Features
 
@@ -103,16 +103,16 @@ cp .env.example .env
 cd worker
 
 # Crear bucket R2 para cache
-npx wrangler r2 bucket create speechify-tts-cache
+npx wrangler r2 bucket create folio-tts-cache
 
 # Deploy del Worker
 npx wrangler deploy
 ```
 
-Anota la URL del Worker (ej: `https://speechify-tts.tu-subdomain.workers.dev`) y ponla en `.env`:
+Anota la URL del Worker (ej: `https://folio-tts.tu-subdomain.workers.dev`) y ponla en `.env`:
 
 ```
-VITE_WORKER_URL=https://speechify-tts.tu-subdomain.workers.dev
+VITE_WORKER_URL=https://folio-tts.tu-subdomain.workers.dev
 ```
 
 ### 6. Ejecutar en desarrollo
@@ -192,6 +192,6 @@ MIT
 
 ## 🔗 Links
 
-- [Spec de diseño](docs/specs/2026-07-09-speechify-clone-design.md)
-- [Plan de implementación](docs/superpowers/plans/2026-07-09-speechify-clone.md)
+- [Spec de diseño](docs/specs/2026-07-09-folio-design.md)
+- [Plan de implementación](docs/superpowers/plans/2026-07-09-folio.md)
 - [Guía de deploy](DEPLOYMENT.md)

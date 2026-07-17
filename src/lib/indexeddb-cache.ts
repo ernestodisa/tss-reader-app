@@ -1,8 +1,11 @@
 import { get, set, del, clear, keys, createStore } from 'idb-keyval';
 import type { CacheEntry, CacheKey, CacheLayer, CacheStats } from '../types';
 
+// Exportado para la migración de re-branding (rebrand-migration.ts).
+export const idbCacheStore = createStore('folio-cache', 'keyval');
+
 export class IndexedDBCache implements CacheLayer {
-  private store = createStore('speechify-cache', 'keyval');
+  private store = idbCacheStore;
   private _stats: CacheStats = { hits: 0, misses: 0, sizeBytes: 0, entries: 0 };
 
   async get<T>(key: CacheKey): Promise<CacheEntry<T> | null> {

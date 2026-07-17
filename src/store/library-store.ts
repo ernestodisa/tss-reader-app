@@ -95,6 +95,6 @@ export const useLibraryStore = create<LibraryStore>()(
         books: s.books.map((b) => (b.id === id ? { ...b, bookPushed: true } : b)),
       })),
     }),
-    { name: 'speechify-library' },
+    { name: 'folio-library' },
   ),
 );

@@ -1,6 +1,6 @@
 # Sample Text for E2E Testing
 
-This is a sample document used for end-to-end testing of the Speechify Clone PWA.
+This is a sample document used for end-to-end testing of the Folio PWA.
 
 ## Chapter 1: The Beginning
 

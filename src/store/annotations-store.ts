@@ -100,6 +100,6 @@ export const useAnnotationsStore = create<AnnotationsStore>()(
           .notes.filter((n) => n.bookId === bookId)
           .sort((a, b) => a.chapterIndex - b.chapterIndex || a.paragraphIndex - b.paragraphIndex),
     }),
-    { name: 'speechify-annotations' },
+    { name: 'folio-annotations' },
   ),
 );

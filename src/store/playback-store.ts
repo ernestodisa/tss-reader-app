@@ -157,7 +157,7 @@ export const usePlaybackStore = create<PlaybackStore>()(
   bumpGeneration: () => set((s) => ({ generationId: s.generationId + 1 })),
     }),
     {
-      name: 'speechify-playback',
+      name: 'folio-playback',
       // CUIDADO: timingsByParagraph es un Map no serializable — NO lo persistas.
       // Solo persistimos preferencias del usuario.
       partialize: (s) => ({

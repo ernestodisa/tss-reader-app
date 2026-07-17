@@ -8,3 +8,7 @@ pages_build_output_dir = "dist"
 [[r2_buckets]]
 binding = "TTS_CACHE"
 bucket_name = "speechify-tts-cache"
+
+# NOTA re-branding: el bucket R2 físico conserva el nombre speechify-tts-cache
+# porque tiene datos de producción (cache TTS + sync de usuarios). Renombrarlo
+# implica migrar objetos en Cloudflare; pendiente para antes de tiendas.
