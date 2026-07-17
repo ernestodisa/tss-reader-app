@@ -167,6 +167,16 @@ async function handleSync(request: Request, env: Env, url: URL): Promise<Respons
   // Rutas: /sync/{code} (progreso) y /sync/{code}/book/{bookId} (libro completo).
   const segments = url.pathname.slice('/sync/'.length).split('/').map(decodeURIComponent);
   const code = segments[0] ?? '';
+
+  // Sincronización por identidad (email del JWT de Access). Las rutas /sync/me y
+  // /sync/me/book/{bookId} son el equivalente por-usuario de las rutas por
+  // código: misma semántica, pero la llave R2 usa el email verificado en lugar
+  // del código compartido. El email lo inyecta la Pages Function como
+  // X-Verified-Email tras validar el JWT; el cliente nunca puede ponerlo.
+  if (code === 'me') {
+    return handleSyncMe(request, env, segments);
+  }
+
   if (!SYNC_CODE_RE.test(code)) {
     return jsonError(400, { error: 'invalid_sync_code' });
   }
@@ -248,6 +258,76 @@ async function handleSyncBook(
       httpMetadata: { contentType: 'application/json' },
     });
     return jsonOk({ ok: true, code, bookId });
+  }
+
+  return jsonError(405, { error: 'method_not_allowed' });
+}
+
+// Sincronización por identidad: /sync/me (progreso) y /sync/me/book/{bookId}
+// (libro completo). El email es el segmento de confianza; llega SOLO por el
+// header X-Verified-Email que inyecta la Pages Function tras validar el JWT de
+// Access. En dev local (`wrangler dev`) sin Access delante, si no viene el
+// header se acepta env.DEV_FAKE_EMAIL como fallback (definir como var; NUNCA en
+// producción). La llave R2 vive bajo sync/u/{email} — namespace separado de las
+// rutas por código sync/{code}, que siguen intactas como fallback.
+async function handleSyncMe(request: Request, env: Env, segments: string[]): Promise<Response> {
+  const headerEmail = request.headers.get('X-Verified-Email');
+  const rawEmail = (headerEmail && headerEmail.trim()) || (env.DEV_FAKE_EMAIL || '').trim();
+  if (!rawEmail) {
+    return jsonError(401, { error: 'no_autenticado' });
+  }
+  const email = rawEmail.toLowerCase();
+
+  if (!env.TTS_CACHE) {
+    return jsonError(503, { error: 'sync_unavailable' });
+  }
+
+  // /sync/me/book/{bookId} — libro completo del usuario.
+  if (segments.length > 1) {
+    if (segments[1] !== 'book' || segments.length !== 3 || !BOOK_ID_OK(segments[2])) {
+      return jsonError(404, { error: 'not_found' });
+    }
+    return syncJsonObject(request, env, `sync/u/${email}/book/${segments[2]}`, MAX_BOOK_BYTES);
+  }
+
+  // /sync/me — progreso del usuario.
+  return syncJsonObject(request, env, `sync/u/${email}`, MAX_SYNC_BYTES);
+}
+
+// GET/PUT de un objeto JSON en R2 con tope de tamaño — semántica compartida por
+// las rutas por identidad (misma que las rutas por código: GET devuelve el JSON
+// o 404, PUT valida JSON + tope y persiste, otros métodos → 405).
+async function syncJsonObject(
+  request: Request,
+  env: Env,
+  objKey: string,
+  maxBytes: number,
+): Promise<Response> {
+  const bucket = env.TTS_CACHE!;
+
+  if (request.method === 'GET') {
+    const obj = await bucket.get(objKey);
+    if (!obj) return jsonError(404, { error: 'not_found' });
+    return new Response(obj.body, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+    });
+  }
+
+  if (request.method === 'PUT') {
+    const raw = await request.arrayBuffer();
+    if (raw.byteLength > maxBytes) {
+      return jsonError(413, { error: 'payload_too_large', maxBytes });
+    }
+    try {
+      JSON.parse(new TextDecoder().decode(raw));
+    } catch {
+      return jsonError(400, { error: 'invalid_json' });
+    }
+    await bucket.put(objKey, raw, {
+      httpMetadata: { contentType: 'application/json' },
+    });
+    return jsonOk({ ok: true });
   }
 
   return jsonError(405, { error: 'method_not_allowed' });

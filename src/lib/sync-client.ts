@@ -144,6 +144,157 @@ export async function pushBook(
   }
 }
 
+// ── Sync por IDENTIDAD (cuenta de Cloudflare Access) ─────────────────────
+// Mismas formas de payload que el sync por código, pero contra las rutas
+// /api/sync/me* del mismo origen. La auth es implícita: la cookie de Access
+// viaja con `credentials: 'include'` y la Pages Function valida el JWT. No hay
+// código ni header de usuario. En dev, WORKER_URL apunta al worker local y la
+// ruta relativa /sync/me se resuelve ahí igual que las de arriba.
+
+/** Progreso/biblioteca del usuario autenticado. 401 → sin sesión de Access. */
+export async function pushProgressMe(payload: SyncPayload): Promise<SyncResult<void>> {
+  try {
+    const resp = await fetch(`${WORKER_URL}/sync/me`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    if (resp.status === 401) {
+      return {
+        success: false,
+        error: { code: 'no_autenticado', message: 'Sin sesión de Access.', recoverable: true },
+      };
+    }
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return {
+        success: false,
+        error: { code: 'sync_push_failed', message: body.error || `HTTP ${resp.status}`, recoverable: true },
+      };
+    }
+    return { success: true, data: undefined };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'network_error',
+        message: err instanceof Error ? err.message : 'network error',
+        recoverable: true,
+      },
+    };
+  }
+}
+
+export async function pullProgressMe(): Promise<SyncResult<SyncPayload>> {
+  try {
+    const resp = await fetch(`${WORKER_URL}/sync/me`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (resp.status === 401) {
+      return {
+        success: false,
+        error: { code: 'no_autenticado', message: 'Sin sesión de Access.', recoverable: true },
+      };
+    }
+    if (resp.status === 404) {
+      // Aún no hay nada guardado para esta identidad: biblioteca vacía en la nube.
+      return { success: true, data: { books: [], syncedAt: 0 } };
+    }
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return {
+        success: false,
+        error: { code: 'sync_pull_failed', message: body.error || `HTTP ${resp.status}`, recoverable: true },
+      };
+    }
+    const data = (await resp.json()) as SyncPayload;
+    return { success: true, data };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'network_error',
+        message: err instanceof Error ? err.message : 'network error',
+        recoverable: true,
+      },
+    };
+  }
+}
+
+export async function pushBookMe(bookId: string, doc: ExtractedDoc): Promise<SyncResult<void>> {
+  try {
+    const resp = await fetch(`${WORKER_URL}/sync/me/book/${encodeURIComponent(bookId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(doc),
+    });
+    if (resp.status === 401) {
+      return {
+        success: false,
+        error: { code: 'no_autenticado', message: 'Sin sesión de Access.', recoverable: true },
+      };
+    }
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return {
+        success: false,
+        error: { code: 'book_push_failed', message: body.error || `HTTP ${resp.status}`, recoverable: true },
+      };
+    }
+    return { success: true, data: undefined };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'network_error',
+        message: err instanceof Error ? err.message : 'network error',
+        recoverable: true,
+      },
+    };
+  }
+}
+
+export async function pullBookMe(bookId: string): Promise<SyncResult<ExtractedDoc>> {
+  try {
+    const resp = await fetch(`${WORKER_URL}/sync/me/book/${encodeURIComponent(bookId)}`, {
+      credentials: 'include',
+    });
+    if (resp.status === 401) {
+      return {
+        success: false,
+        error: { code: 'no_autenticado', message: 'Sin sesión de Access.', recoverable: true },
+      };
+    }
+    if (resp.status === 404) {
+      return {
+        success: false,
+        error: { code: 'not_found', message: 'Ese libro no está en la nube.', recoverable: true },
+      };
+    }
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return {
+        success: false,
+        error: { code: 'book_pull_failed', message: body.error || `HTTP ${resp.status}`, recoverable: true },
+      };
+    }
+    const doc = (await resp.json()) as ExtractedDoc;
+    return { success: true, data: doc };
+  } catch (err) {
+    return {
+      success: false,
+      error: {
+        code: 'network_error',
+        message: err instanceof Error ? err.message : 'network error',
+        recoverable: true,
+      },
+    };
+  }
+}
+
 export async function pullBook(code: string, bookId: string): Promise<SyncResult<ExtractedDoc>> {
   try {
     const resp = await fetch(

@@ -92,6 +92,10 @@ export const onRequest: PagesFunction<PagesEnv> = async (context) => {
   const aud = (env.ACCESS_AUD || '').trim();
   const accessConfigured = Boolean(teamDomain && aud);
 
+  // Email validado del JWT de Access (claim `email`). Es la ÚNICA fuente de
+  // identidad: se inyecta como header X-Verified-Email hacia el worker interno.
+  let verifiedEmail: string | null = null;
+
   // El preflight CORS no lleva cookies ni JWT; el worker interno lo responde.
   if (accessConfigured && request.method !== 'OPTIONS') {
     const token = request.headers.get('Cf-Access-Jwt-Assertion');
@@ -103,6 +107,12 @@ export const onRequest: PagesFunction<PagesEnv> = async (context) => {
     }
     try {
       await verifyAccessJwt(token, teamDomain, aud);
+      // Solo tras verificar la firma decodificamos el payload y extraemos el
+      // email. El segundo segmento del JWT es el payload en base64url.
+      const payload = b64urlToJson(token.split('.')[1]) as { email?: unknown };
+      if (typeof payload.email === 'string' && payload.email) {
+        verifiedEmail = payload.email;
+      }
     } catch {
       return new Response(JSON.stringify({ error: 'sesion_invalida' }), {
         status: 401,
@@ -114,6 +124,20 @@ export const onRequest: PagesFunction<PagesEnv> = async (context) => {
   // Re-enruta /api/tts → /tts hacia la lógica del worker (mismo Env: R2 + keys).
   const url = new URL(request.url);
   url.pathname = url.pathname.replace(/^\/api/, '') || '/';
-  const inner = new Request(url.toString(), request);
+
+  // Identidad a prueba de inyección: SIEMPRE borramos cualquier X-Verified-Email
+  // que venga del cliente y, si hay email validado por el JWT, lo ponemos
+  // nosotros. Así el cliente jamás puede suplantar identidad por header.
+  const headers = new Headers(request.headers);
+  headers.delete('X-Verified-Email');
+  if (verifiedEmail) headers.set('X-Verified-Email', verifiedEmail);
+
+  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+  const inner = new Request(url.toString(), {
+    method: request.method,
+    headers,
+    body: hasBody ? request.body : undefined,
+    redirect: 'manual',
+  });
   return workerApp.fetch(inner, env);
 };

@@ -121,6 +121,11 @@ export function SyncPanel() {
       {expanded && (
         <div className="lib-sync__body">
           <p className="lib-sync__desc">
+            Tu biblioteca y tu progreso ya se sincronizan solos con tu cuenta en cada
+            dispositivo donde inicies sesión. Este código es solo para compartir con
+            <em> otra</em> cuenta o mover tu biblioteca fuera de tu sesión.
+          </p>
+          <p className="lib-sync__desc">
             Genera un código en un dispositivo y úsalo en otro para compartir tus libros y tu progreso de lectura.
           </p>
           <div className="lib-sync__row">

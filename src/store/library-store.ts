@@ -19,6 +19,9 @@ export interface LibraryEntry {
   /** Marca de tiempo del último cambio de progreso; usado por sync-client para
    *  resolver conflictos entre dispositivos (gana el más reciente). */
   updatedAt?: number;
+  /** true cuando el CONTENIDO completo (ExtractedDoc) ya se subió a la nube por
+   *  identidad; evita re-subir el libro en cada push de progreso (auto-sync). */
+  bookPushed?: boolean;
 }
 
 interface LibraryStore {
@@ -28,6 +31,9 @@ interface LibraryStore {
   updateProgress: (id: string, chapter: number, paragraph: number, percent?: number) => void;
   /** Reemplaza el arreglo completo de libros (usado al bajar progreso vía sync). */
   mergeBooks: (incoming: LibraryEntry[]) => void;
+  /** Marca que el contenido del libro ya se subió a la nube (auto-sync). No
+   *  toca updatedAt para no disparar un push de progreso extra. */
+  markBookPushed: (id: string) => void;
 }
 
 export const useLibraryStore = create<LibraryStore>()(
@@ -85,6 +91,9 @@ export const useLibraryStore = create<LibraryStore>()(
         }
         return { books: Array.from(byId.values()) };
       }),
+      markBookPushed: (id) => set((s) => ({
+        books: s.books.map((b) => (b.id === id ? { ...b, bookPushed: true } : b)),
+      })),
     }),
     { name: 'speechify-library' },
   ),

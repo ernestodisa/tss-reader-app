@@ -29,4 +29,9 @@ export interface Env {
   // corresponding engine reports itself as not configured (400 on request).
   ELEVENLABS_API_KEY?: string;
   OPENAI_API_KEY?: string;
+  // Solo para desarrollo local (`wrangler dev`) SIN Cloudflare Access delante:
+  // si se define como var, su valor se usa como email verificado cuando el
+  // request no trae el header X-Verified-Email (que en producción inyecta la
+  // Pages Function tras validar el JWT de Access). NUNCA definir en producción.
+  DEV_FAKE_EMAIL?: string;
 }
