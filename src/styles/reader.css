@@ -546,3 +546,73 @@
     display: none;
   }
 }
+
+/* ═══ Polish móvil / iOS (traslapes en iPhone, safe areas) ═══════════════ */
+
+@media (max-width: 680px) {
+  /* Header del capítulo en DOS filas: [☰ + kicker/título + %] / [acciones].
+     Antes todo iba en una fila y kicker/título se encimaban con el progreso
+     y las pills en 375px. */
+  .reader-chapter-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 16px 10px;
+  }
+
+  .reader-chapter-heading {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .reader-chapter-kicker {
+    font-size: 10px;
+  }
+
+  .reader-chapter-title {
+    font-size: 17px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .reader-chapter-actions {
+    flex: 1 0 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .reader-chapter-actions::-webkit-scrollbar {
+    display: none;
+  }
+  .reader-chapter-actions > * {
+    flex: 0 0 auto;
+  }
+
+  /* En móvil el % basta; el detalle Cap./párr. vive en el propio texto. */
+  .reader-progress__detail {
+    display: none;
+  }
+
+  /* Tipografía móvil del mockup (18.5px/1.85 en vez de 22px/1.9). */
+  .reader-paragraph,
+  .karaoke-text {
+    font-size: 18.5px;
+    line-height: 1.85;
+  }
+}
+
+/* Safe areas iOS (PWA instalada con viewport-fit=cover): que el contenido no
+   quede debajo del home indicator ni del player flotante. */
+.reader-content {
+  padding-bottom: calc(190px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 900px) {
+  .reader-content {
+    padding-bottom: calc(170px + env(safe-area-inset-bottom, 0px));
+  }
+}

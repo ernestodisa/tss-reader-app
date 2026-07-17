@@ -307,3 +307,37 @@
     gap: 8px;
   }
 }
+
+/* ═══ Polish móvil / iOS ═════════════════════════════════════════════════ */
+
+/* Safe area: la píldora no debe pisarse con el home indicator del iPhone. */
+.fp-player {
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 600px) {
+  /* Contenida entre márgenes fijos: nada de desbordes por ancho calculado. */
+  .fp-player {
+    left: 12px;
+    right: 12px;
+    transform: none;
+    width: auto;
+    max-width: none;
+    justify-content: center;
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 430px) {
+  /* En iPhone (≤430pt) el waveform decorativo cede su espacio al transporte
+     y al stepper de velocidad; sin esto el "+" y el volumen se cortaban. */
+  .fp-wave {
+    display: none;
+  }
+  .fp-player {
+    gap: 6px;
+  }
+  .fp-speed {
+    padding-left: 8px;
+  }
+}

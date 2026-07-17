@@ -207,8 +207,11 @@ export function ReaderView() {
 
             <div className="reader-chapter-actions">
               <span className="reader-progress">
-                {percent}% · Cap. {chapterIndex + 1}/{doc.chapters.length} · párr.{' '}
-                {paragraphIndex + 1}/{total}
+                {percent}%
+                <span className="reader-progress__detail">
+                  {' '}· Cap. {chapterIndex + 1}/{doc.chapters.length} · párr.{' '}
+                  {paragraphIndex + 1}/{total}
+                </span>
               </span>
               {bookId && <BookmarkButton bookId={bookId} />}
               {bookId && (

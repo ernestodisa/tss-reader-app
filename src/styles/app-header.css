@@ -101,3 +101,15 @@
   border-color: var(--ink);
   transform: scale(1.1);
 }
+
+/* Safe area iOS: header despejado de la Dynamic Island en la PWA instalada. */
+.app-header {
+  padding-top: calc(18px + env(safe-area-inset-top, 0px));
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding-bottom: 12px;
+  }
+}
