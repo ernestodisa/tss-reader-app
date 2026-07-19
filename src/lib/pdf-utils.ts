@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// Wrapper con polyfills (iOS ≤17.3) en lugar del worker crudo de pdf.js.
+import workerUrl from '../workers/pdfjs-worker-entry?worker&url';
 import type { Chapter, Paragraph } from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;

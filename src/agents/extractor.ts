@@ -51,12 +51,22 @@ export async function extractDocument(file: File): Promise<AgentResult<Extracted
     const message = err instanceof Error ? err.message : 'unknown_error';
     const isCorrupt = message.includes('password') || message.includes('Invalid') || message.includes('corrupt');
 
+    // Diagnóstico de campo: el mensaje corto ("undefined is not a function")
+    // no dice DÓNDE tronó. El primer frame del stack apunta a la librería
+    // culpable (epubjs/pdfjs) y el log completo queda en consola para
+    // recuperarlo con el iPhone conectado a Safari de Mac si hace falta.
+    const frame =
+      err instanceof Error && err.stack
+        ? (err.stack.split('\n').find((l) => l.trim() && !l.includes(message)) ?? '').trim().slice(0, 120)
+        : '';
+    console.error('[extractor] fallo de extracción', { file: file.name, size: file.size, type: file.type, err });
+
     const error: PipelineError = {
       step: 'extract',
       code: isCorrupt ? 'corrupt_file' : 'extraction_failed',
       message: isCorrupt
         ? 'El archivo está corrupto o protegido con contraseña.'
-        : `Error al extraer texto: ${message}`,
+        : `Error al extraer texto: ${message}${frame ? ` [${frame}]` : ''}`,
       recoverable: false,
     };
 

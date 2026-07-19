@@ -1,4 +1,7 @@
-// PRIMERO la migración de re-branding: renombra llaves localStorage
+// PRIMERO los polyfills (Promise.withResolvers para iOS ≤17.3 — sin esto la
+// importación de PDFs muere en Safari viejo), luego la migración de re-branding.
+import './lib/polyfills';
+// La migración de re-branding: renombra llaves localStorage
 // speechify-* → folio-* de forma síncrona ANTES de que los stores (zustand
 // persist) lean las suyas al importarse.
 import { migrateIdbToFolio } from './lib/rebrand-migration';

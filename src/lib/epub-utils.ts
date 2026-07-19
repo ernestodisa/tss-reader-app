@@ -7,10 +7,26 @@ export async function extractEPub(
   file: File
 ): Promise<{ title: string; author?: string; chapters: Chapter[]; coverDataUrl?: string }> {
   const arrayBuffer = await file.arrayBuffer();
+
+  // Un ePub es un ZIP: valida la firma PK\x03\x04 ANTES de dárselo a epubjs —
+  // con un archivo que no es zip (descarga corrupta, .mobi renombrado, HTML de
+  // una página de error) epubjs se queda colgado para siempre en book.ready y
+  // la UI muere en "Procesando…" sin error.
+  const magic = new Uint8Array(arrayBuffer.slice(0, 4));
+  if (!(magic[0] === 0x50 && magic[1] === 0x4b && magic[2] === 0x03 && magic[3] === 0x04)) {
+    throw new Error('Invalid ePub: el archivo no es un ZIP válido (¿descarga corrupta o formato renombrado?)');
+  }
+
   const book = ePub(arrayBuffer);
 
-  // Wait for book to be fully loaded
-  await book.ready;
+  // Wait for book to be fully loaded — con tope: si epubjs se atora con una
+  // estructura interna rara, mejor un error accionable que un spinner eterno.
+  await Promise.race([
+    book.ready,
+    new Promise((_, rej) =>
+      setTimeout(() => rej(new Error('Invalid ePub: la estructura interna no se pudo leer (timeout)')), 30_000),
+    ),
+  ]);
 
   const title = book.packaging?.metadata?.title || file.name.replace(/\.epub$/i, '');
   const author = book.packaging?.metadata?.creator;
