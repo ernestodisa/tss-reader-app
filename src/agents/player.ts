@@ -5,6 +5,14 @@ import { WordTiming } from '../types';
 export type WordChangeCallback = (wordIndex: number) => void;
 export type EndCallback = () => void;
 export type ErrorCallback = () => void;
+/** Metadatos del chunk PRE-ENCOLADO que arranca solo al terminar el actual. */
+export interface QueuedChunkMeta {
+  paragraphId: string;
+  /** true si este chunk es el primero del SIGUIENTE párrafo (auto-avance). */
+  paragraphAdvance: boolean;
+}
+export type ChunkStartCallback = (meta: QueuedChunkMeta, timings: WordTiming[]) => void;
+export type PlayBlockedCallback = () => void;
 
 // ── PlayerAgent sobre <audio> ─────────────────────────────────────────────
 // Reproduce el MP3 crudo en un HTMLAudioElement en vez de decodificarlo con
@@ -24,9 +32,19 @@ class PlayerAgent {
   private wordCallback: WordChangeCallback | null = null;
   private endCallback: EndCallback | null = null;
   private errorCallback: ErrorCallback | null = null;
+  private chunkStartCallback: ChunkStartCallback | null = null;
+  private playBlockedCallback: PlayBlockedCallback | null = null;
   private _currentParagraphId: string | null = null;
   private _timings: WordTiming[] = [];
   private _rafId: number = 0;
+  // Chunk siguiente PRE-ENCOLADO (object URL ya creado): en `ended` se hace el
+  // swap src+play() SÍNCRONO, sin fetch ni limpieza intermedia. Clave para
+  // Android: un play() encadenado dentro del handler de `ended` sobre el mismo
+  // <audio> ya desbloqueado sí se permite en background; el ciclo anterior
+  // (fetch async → removeAttribute → load → play) se bloqueaba al minimizar.
+  private queuedUrl: string | null = null;
+  private queuedTimings: WordTiming[] = [];
+  private queuedMeta: QueuedChunkMeta | null = null;
 
   private getAudio(): HTMLAudioElement {
     if (!this.audio) {
@@ -51,11 +69,29 @@ class PlayerAgent {
     audio.src = this.objectUrl;
 
     audio.onended = () => {
-      // Fin natural: limpia estado para que getCurrentPositionMs() regrese 0
-      // (handlePlayPause no debe intentar resume de un audio terminado).
+      cancelAnimationFrame(this._rafId);
+      // Si hay un chunk pre-encolado, el swap es SÍNCRONO aquí dentro del
+      // handler de `ended`: mismo elemento, sin limpieza ni fetch de por medio.
+      if (this.queuedUrl && this.queuedMeta) {
+        const meta = this.queuedMeta;
+        if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+        this.objectUrl = this.queuedUrl;
+        this._timings = this.queuedTimings;
+        this._currentParagraphId = meta.paragraphId;
+        this.queuedUrl = null;
+        this.queuedTimings = [];
+        this.queuedMeta = null;
+        audio.src = this.objectUrl;
+        void audio.play().catch(() => this.playBlockedCallback?.());
+        this._startWordTracking();
+        this.chunkStartCallback?.(meta, this._timings);
+        return;
+      }
+      // Fin natural sin cola: limpia estado para que getCurrentPositionMs()
+      // regrese 0 (handlePlayPause no debe intentar resume de un audio
+      // terminado) y delega el avance al endCallback.
       this._currentParagraphId = null;
       this._timings = [];
-      cancelAnimationFrame(this._rafId);
       this.endCallback?.();
     };
 
@@ -75,8 +111,29 @@ class PlayerAgent {
   play(): void {
     const audio = this.audio;
     if (!audio || !this._currentParagraphId) return;
-    void audio.play().catch(() => { /* autoplay bloqueado: el próximo gesto reintenta */ });
+    // Un rechazo (autoplay/background) ya no es silencioso: se notifica para
+    // que la UI quede en pausa honesta en vez de "reproduciendo" mudo.
+    void audio.play().catch(() => this.playBlockedCallback?.());
     this._startWordTracking();
+  }
+
+  /** Pre-encola el SIGUIENTE chunk (object URL creado desde ya). Reemplaza
+   *  cualquier encolado previo. Se consume en `ended`; fullStop lo limpia. */
+  queueNext(mp3Parts: ArrayBuffer[], timings: WordTiming[], meta: QueuedChunkMeta): void {
+    this.clearQueued();
+    const blob = new Blob(mp3Parts, { type: 'audio/mpeg' });
+    this.queuedUrl = URL.createObjectURL(blob);
+    this.queuedTimings = timings;
+    this.queuedMeta = meta;
+  }
+
+  private clearQueued(): void {
+    if (this.queuedUrl) {
+      URL.revokeObjectURL(this.queuedUrl);
+      this.queuedUrl = null;
+    }
+    this.queuedTimings = [];
+    this.queuedMeta = null;
   }
 
   pause(): void {
@@ -118,6 +175,7 @@ class PlayerAgent {
       URL.revokeObjectURL(this.objectUrl);
       this.objectUrl = null;
     }
+    this.clearQueued();
     this._currentParagraphId = null;
     this._timings = [];
   }
@@ -131,6 +189,14 @@ class PlayerAgent {
 
   setWordChangeCallback(cb: WordChangeCallback): void {
     this.wordCallback = cb;
+  }
+
+  setChunkStartCallback(cb: ChunkStartCallback): void {
+    this.chunkStartCallback = cb;
+  }
+
+  setPlayBlockedCallback(cb: PlayBlockedCallback): void {
+    this.playBlockedCallback = cb;
   }
 
   setEndCallback(cb: EndCallback): void {
