@@ -17,6 +17,17 @@ export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
     const chunks: TTSChunk[] = [];
     const wordOffsetMap = new Map<number, number>(); // global wordIndex → chunkIndex
 
+    // Párrafo SIN contenido pronunciable (separadores tipográficos "• • •",
+    // ". . .", "***", líneas de adorno): Edge TTS responde 200 con 0 bytes y la
+    // reproducción se plantaba ahí reintentando. Cero chunks → el PlayerBar lo
+    // salta de inmediato por su camino de "párrafo sin contenido sonoro".
+    if (!/[\p{L}\p{N}]/u.test(job.paragraphText)) {
+      return {
+        success: true,
+        data: { paragraphId: job.paragraphId, chunks, estimatedDurationMs: 0, wordOffsetMap },
+      };
+    }
+
     if (job.paragraphText.length <= maxChars) {
       // Single chunk — no splitting needed
       const chunk: TTSChunk = {

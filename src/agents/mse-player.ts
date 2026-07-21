@@ -123,6 +123,16 @@ export class MseEngine implements PlaybackEngine {
           this.checkProgress(this.audio.currentTime * 1000);
         }
       });
+      // FIN por estancamiento: al agotarse el buffer (fin real del stream, p.ej.
+      // cuando el párrafo siguiente no aportó chunks — separadores "• • •"), el
+      // audio se congela unos ms ANTES del endMs calculado y timeupdate deja de
+      // disparar → el umbral de fin jamás se alcanzaba y la reproducción quedaba
+      // clavada en "playing" muda. `waiting`/`stalled` son la señal del propio
+      // estancamiento: si no queda nada anexado ni pendiente por delante, ese
+      // estancamiento ES el fin del stream.
+      const onStall = () => this.endOnStall();
+      this.audio.addEventListener('waiting', onStall);
+      this.audio.addEventListener('stalled', onStall);
     }
     return this.audio;
   }
@@ -390,6 +400,19 @@ export class MseEngine implements PlaybackEngine {
       this._endFired = true;
       this.endCallback?.();
     }
+  }
+
+  /** Fin del stream detectado por estancamiento (`waiting`/`stalled`). */
+  private endOnStall(): void {
+    if (!this._hasCurrent || this._endFired) return;
+    // Solo es fin si estamos en el ÚLTIMO segmento anexado y no hay appends
+    // pendientes: un waiting a media stream (no debería ocurrir en modo
+    // sequence) no debe disparar avances en falso.
+    if (this.pending.length > 0) return;
+    if (this.activeIndex !== this.segments.length - 1) return;
+    if (this.segments.length === 0) return;
+    this._endFired = true;
+    this.endCallback?.();
   }
 
   // ── Karaoke por rAF (solo foreground; el progreso duro va por timeupdate) ─

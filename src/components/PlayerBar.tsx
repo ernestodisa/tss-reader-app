@@ -116,7 +116,11 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     if (!ttsResult.success) {
       setParagraphTiming(chain.paragraph.id, { status: 'error', error: ttsResult.error });
       setBuffering(false);
-      if (ttsResult.error.recoverable) {
+      // empty_audio es "recuperable" solo para efectos de reintento inmediato
+      // (bytes frescos, no cachear). Si tras los reintentos SIGUE vacío, el
+      // texto no produce audio (separadores exóticos que el filtro del chunker
+      // no atrapó): pausar aquí plantaba el libro para siempre — se salta.
+      if (ttsResult.error.recoverable && ttsResult.error.code !== 'empty_audio') {
         usePlaybackStore.getState().pause();
       } else {
         skipToNextAfterError(chain.gen);
