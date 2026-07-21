@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt': el SW nuevo NO espera al doble-reinicio — la UI avisa
+      // (UpdateToast) y un toque actualiza. Ver src/lib/sw-update.ts.
+      registerType: 'prompt',
       manifest: {
         name: 'Folio — audiolector',
         short_name: 'Folio',

@@ -1,6 +1,7 @@
 import { AppHeader } from './components/AppHeader';
 import { Library } from './components/Library';
 import { ReaderView } from './components/ReaderView';
+import { UpdateToast } from './components/UpdateToast';
 import { useDocument } from './hooks/useDocument';
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
             no lo dupliques aquí. */}
         {doc ? <ReaderView /> : <Library />}
       </main>
+      <UpdateToast />
     </div>
   );
 }

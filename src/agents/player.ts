@@ -1,18 +1,25 @@
 import { WordTiming } from '../types';
+import { MseEngine } from './mse-player';
+import type {
+  PlaybackEngine,
+  WordChangeCallback,
+  EndCallback,
+  ErrorCallback,
+  ChunkStartCallback,
+  PlayBlockedCallback,
+  QueuedChunkMeta,
+} from './playback-engine';
 
-// ── Callback types ────────────────────────────────────────────────────────
-
-export type WordChangeCallback = (wordIndex: number) => void;
-export type EndCallback = () => void;
-export type ErrorCallback = () => void;
-/** Metadatos del chunk PRE-ENCOLADO que arranca solo al terminar el actual. */
-export interface QueuedChunkMeta {
-  paragraphId: string;
-  /** true si este chunk es el primero del SIGUIENTE párrafo (auto-avance). */
-  paragraphAdvance: boolean;
-}
-export type ChunkStartCallback = (meta: QueuedChunkMeta, timings: WordTiming[]) => void;
-export type PlayBlockedCallback = () => void;
+// Re-export de los tipos del motor para no romper imports existentes.
+export type {
+  PlaybackEngine,
+  WordChangeCallback,
+  EndCallback,
+  ErrorCallback,
+  ChunkStartCallback,
+  PlayBlockedCallback,
+  QueuedChunkMeta,
+} from './playback-engine';
 
 // ── PlayerAgent sobre <audio> ─────────────────────────────────────────────
 // Reproduce el MP3 crudo en un HTMLAudioElement en vez de decodificarlo con
@@ -25,7 +32,7 @@ export type PlayBlockedCallback = () => void;
 // El karaoke se sincroniza leyendo audio.currentTime en un rAF (resolución
 // sobrada para resaltar palabras).
 
-class PlayerAgent {
+export class PlayerAgent implements PlaybackEngine {
   private audio: HTMLAudioElement | null = null;
   private objectUrl: string | null = null;
   private _volume: number = 1;
@@ -58,7 +65,9 @@ class PlayerAgent {
   }
 
   /** Carga un párrafo: partes MP3 crudas (stream MPEG concatenable) + timings. */
-  load(paragraphId: string, mp3Parts: ArrayBuffer[], timings: WordTiming[]): void {
+  // durationMs se ignora en el motor clásico (el <audio> conoce su propia
+  // duración); se acepta solo para cumplir la interfaz PlaybackEngine.
+  load(paragraphId: string, mp3Parts: ArrayBuffer[], timings: WordTiming[], _durationMs?: number): void {
     this.fullStop();
     this._currentParagraphId = paragraphId;
     this._timings = timings;
@@ -119,7 +128,7 @@ class PlayerAgent {
 
   /** Pre-encola el SIGUIENTE chunk (object URL creado desde ya). Reemplaza
    *  cualquier encolado previo. Se consume en `ended`; fullStop lo limpia. */
-  queueNext(mp3Parts: ArrayBuffer[], timings: WordTiming[], meta: QueuedChunkMeta): void {
+  queueNext(mp3Parts: ArrayBuffer[], timings: WordTiming[], meta: QueuedChunkMeta, _durationMs?: number): void {
     this.clearQueued();
     const blob = new Blob(mp3Parts, { type: 'audio/mpeg' });
     this.queuedUrl = URL.createObjectURL(blob);
@@ -232,4 +241,38 @@ class PlayerAgent {
   }
 }
 
-export const playerAgent = new PlayerAgent();
+// ── Selección de motor por CAPACIDAD (no por user-agent) ──────────────────
+// Se usa el motor MSE (stream continuo, sobrevive a la pantalla apagada en
+// Android) cuando el navegador soporta MediaSource real con 'audio/mpeg'. En
+// iPhone el MediaSource clásico NO existe (solo ManagedMediaSource en WebKit):
+// ahí se cae al motor clásico, que ya funciona en background en iOS.
+// Escape hatch para soporte remoto (sin UI): localStorage folio-engine=classic
+// fuerza el motor clásico en cualquier dispositivo.
+function selectEngine(): PlaybackEngine {
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('folio-engine') === 'classic') {
+      return new PlayerAgent();
+    }
+  } catch {
+    /* localStorage bloqueado (modo privado): sigue con detección por capacidad. */
+  }
+
+  const hasWindow = typeof window !== 'undefined';
+  const hasRealMediaSource =
+    hasWindow &&
+    'MediaSource' in window &&
+    typeof MediaSource !== 'undefined' &&
+    typeof MediaSource.isTypeSupported === 'function' &&
+    MediaSource.isTypeSupported('audio/mpeg');
+  // WebKit-sin-MSE-real: si solo existe ManagedMediaSource (iOS) pero no el
+  // MediaSource clásico, NO usamos el motor MSE.
+  const onlyManaged =
+    hasWindow && !('MediaSource' in window) && 'ManagedMediaSource' in window;
+
+  if (hasRealMediaSource && !onlyManaged) {
+    return new MseEngine();
+  }
+  return new PlayerAgent();
+}
+
+export const playerAgent: PlaybackEngine = selectEngine();

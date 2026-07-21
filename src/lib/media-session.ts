@@ -60,6 +60,29 @@ export function setupMediaSession(config: MediaSessionConfig): void {
   }
 }
 
+/**
+ * Publica la posición/duración del audio actual en la Media Session. En
+ * Android, una sesión con positionState "completa" tiene mejor promoción a la
+ * notificación de medios — y esa notificación es lo que exenta a la app del
+ * congelamiento de background (sin ella, One UI puede suspender el proceso a
+ * media reproducción, con cortes/reanudaciones aleatorios). Best-effort.
+ */
+export function updatePositionState(durationMs: number, positionMs: number, rate = 1): void {
+  if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+  const ms = navigator.mediaSession;
+  if (typeof ms.setPositionState !== 'function') return;
+  try {
+    const duration = Math.max(0, durationMs / 1000);
+    ms.setPositionState({
+      duration,
+      position: Math.min(duration, Math.max(0, positionMs / 1000)),
+      playbackRate: rate > 0 ? rate : 1,
+    });
+  } catch {
+    /* valores fuera de rango o API caprichosa: mejor sin position state */
+  }
+}
+
 /** Limpia metadata y handlers (p. ej. al cerrar el documento). No-op si no existe. */
 export function clearMediaSession(): void {
   if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) {

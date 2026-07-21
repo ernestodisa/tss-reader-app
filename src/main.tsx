@@ -21,6 +21,11 @@ await migrateIdbToFolio(idbCacheStore, docsStore);
 // silenciosa: si no hay sesión o red, la app sigue funcionando offline.
 initAutoSync();
 
+// Registro del service worker en modo prompt: la UI avisa cuando hay versión
+// nueva (UpdateToast) en vez del doble-reinicio a ciegas.
+import { initSwUpdate } from './lib/sw-update';
+initSwUpdate();
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
