@@ -8,7 +8,7 @@ import { chunkParagraph } from '../agents/chunker';
 import { VoiceSelector } from './VoiceSelector';
 import { SpeedControl } from './SpeedControl';
 import { prefetchNext } from '../lib/prefetch';
-import { setupMediaSession, clearMediaSession } from '../lib/media-session';
+import { setupMediaSession, clearMediaSession, updatePositionState } from '../lib/media-session';
 import type { ExtractedDoc, Paragraph, TTSChunk } from '../types';
 import '../styles/player.css';
 
@@ -96,12 +96,22 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   const playChunkFromChain = async (): Promise<void> => {
     const chain = chainRef.current;
     if (!chain) return;
-    if (usePlaybackStore.getState().generationId !== chain.gen) return;
+    // En los returns por generación obsoleta hay que LIMPIAR el buffering: si
+    // queda en true, el botón ▶ se deshabilita (⏳) para siempre y la app se
+    // "muere" tras un cambio de voz/velocidad a media carga. El dueño de la
+    // generación nueva lo vuelve a poner en true cuando carga lo suyo.
+    if (usePlaybackStore.getState().generationId !== chain.gen) {
+      setBuffering(false);
+      return;
+    }
     const chunk = chain.chunks[chain.nextIndex];
     if (!chunk) return;
 
     const ttsResult = await fetchChunkWithRetry(chunk, chain.gen);
-    if (usePlaybackStore.getState().generationId !== chain.gen) return;
+    if (usePlaybackStore.getState().generationId !== chain.gen) {
+      setBuffering(false);
+      return;
+    }
 
     if (!ttsResult.success) {
       setParagraphTiming(chain.paragraph.id, { status: 'error', error: ttsResult.error });
@@ -116,11 +126,14 @@ export function PlayerBar({ doc }: PlayerBarProps) {
 
     consecutiveSkipsRef.current = 0;
     chain.nextIndex += 1;
-    playerAgent.load(chain.paragraph.id, [ttsResult.data.audio], ttsResult.data.words);
+    playerAgent.load(chain.paragraph.id, [ttsResult.data.audio], ttsResult.data.words, ttsResult.data.durationMs);
     setParagraphTiming(chain.paragraph.id, { status: 'ready', timings: ttsResult.data.words });
     playerAgent.play();
     usePlaybackStore.getState().play();
     setBuffering(false);
+    // Position state → mejor promoción de la notificación de medios en Android
+    // (la notificación exenta a la app del congelamiento de background).
+    updatePositionState(ttsResult.data.durationMs, 0);
 
     // Pre-ENCOLADO del siguiente chunk en el player (no solo warm-up del
     // cache): el swap+play en `ended` es síncrono, requisito de Android para
@@ -151,7 +164,7 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         playerAgent.queueNext([r.data.audio], r.data.words, {
           paragraphId: chain.paragraph.id,
           paragraphAdvance: false,
-        });
+        }, r.data.durationMs);
       }
       return;
     }
@@ -186,7 +199,7 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     playerAgent.queueNext([r.data.audio], r.data.words, {
       paragraphId: paragraph.id,
       paragraphAdvance: true,
-    });
+    }, r.data.durationMs);
   };
 
   // Load and play current paragraph (arma la cadena de chunks y arranca).
@@ -352,19 +365,42 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     // la contabilidad de la cadena y encola el siguiente. Con paragraphAdvance,
     // activa la cadena pre-armada y mueve el store al párrafo nuevo.
     playerAgent.setChunkStartCallback((meta, timings) => {
-      if (meta.paragraphAdvance) {
-        const nextChain = pendingNextChainRef.current;
+      const store = usePlaybackStore.getState();
+      const staleChain = meta.paragraphAdvance ? pendingNextChainRef.current : chainRef.current;
+
+      // La generación cambió (voz/velocidad) entre encolar y arrancar: el
+      // chunk que acaba de empezar a sonar es HUÉRFANO de la generación vieja.
+      // Sin esto, el audio sigue en el párrafo siguiente mientras el store (y
+      // el karaoke) se quedan clavados en el recién terminado. Se corta al
+      // huérfano y se re-arranca la posición correcta con los ajustes nuevos.
+      if (!staleChain || store.generationId !== staleChain.gen) {
         pendingNextChainRef.current = null;
-        if (!nextChain || usePlaybackStore.getState().generationId !== nextChain.gen) return;
+        playerAgent.fullStop();
+        if (meta.paragraphAdvance) {
+          store.nextParagraph(useDocumentStore.getState().doc || doc);
+        }
+        const s2 = usePlaybackStore.getState();
+        const paragraph = doc.chapters[s2.chapterIndex]?.paragraphs[s2.paragraphIndex];
+        if (paragraph) void loadAndPlayParagraph(paragraph, s2.voiceId, s2.speed, s2.generationId);
+        return;
+      }
+
+      // Duración del chunk que arranca (para el position state): fin de la
+      // última palabra según sus timings.
+      const lastT = timings[timings.length - 1];
+      if (lastT) updatePositionState(lastT.offsetMs + lastT.durationMs, 0);
+
+      if (meta.paragraphAdvance) {
+        const nextChain = pendingNextChainRef.current!;
+        pendingNextChainRef.current = null;
         chainRef.current = nextChain;
-        usePlaybackStore.getState().nextParagraph(useDocumentStore.getState().doc || doc);
-        usePlaybackStore.getState().setWordIndex(0);
+        store.nextParagraph(useDocumentStore.getState().doc || doc);
+        store.setWordIndex(0);
         setParagraphTiming(meta.paragraphId, { status: 'ready', timings });
         void queueUpcoming(nextChain);
         return;
       }
-      const chain = chainRef.current;
-      if (!chain || usePlaybackStore.getState().generationId !== chain.gen) return;
+      const chain = chainRef.current!;
       const played = chain.chunks[chain.nextIndex - 1];
       if (played) {
         chain.wordOffset += played.text.split(/\s+/).filter(Boolean).length;
