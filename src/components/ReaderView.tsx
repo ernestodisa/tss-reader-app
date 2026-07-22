@@ -123,6 +123,31 @@ export function ReaderView() {
     scrollToActive();
   }, [scrollToActive]);
 
+  // ── Seguimiento FINO dentro de párrafos largos ────────────────────────────
+  // El auto-scroll por párrafo centra el párrafo una vez; en párrafos que no
+  // caben en pantalla la palabra del karaoke se salía de vista. Aquí el punto
+  // de seguimiento es la PALABRA activa: cuando el resaltado sale de la banda
+  // cómoda del viewport (25%–70%), se re-centra con scroll suave. Respeta el
+  // guard de scroll manual y el modo despegado.
+  const wordIndex = usePlaybackStore((s) => s.wordIndex);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || detached) return;
+    if (Date.now() - lastManualScrollRef.current < MANUAL_SCROLL_GUARD_MS) return;
+    const word = el.querySelector<HTMLElement>('.karaoke-text .kw-current');
+    if (!word) return;
+    const c = el.getBoundingClientRect();
+    const r = word.getBoundingClientRect();
+    const topBand = c.top + c.height * 0.25;
+    const bottomBand = c.top + c.height * 0.7;
+    if (r.top >= topBand && r.bottom <= bottomBand) return; // en banda: no tocar
+    programmaticUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS;
+    el.scrollTo({
+      top: el.scrollTop + (r.top - c.top) - c.height * 0.4,
+      behavior: 'smooth',
+    });
+  }, [wordIndex, detached]);
+
   // Al cambiar de capítulo, reinicia el scroll al inicio y limpia el guard.
   useEffect(() => {
     const el = scrollRef.current;
