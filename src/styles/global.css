@@ -214,3 +214,12 @@ input[type='range'] {
   cursor: pointer;
   max-width: min(92vw, 460px);
 }
+
+/* Animación del spinner de carga (icons.tsx → IconSpinner). */
+.icon-spin {
+  animation: icon-spin 0.9s linear infinite;
+}
+
+@keyframes icon-spin {
+  to { transform: rotate(360deg); }
+}

@@ -6,6 +6,7 @@ import { playerAgent } from '../agents/player';
 import { fetchTTS } from '../agents/tts-client';
 import { chunkParagraph } from '../agents/chunker';
 import { VoiceSelector } from './VoiceSelector';
+import { IconPlay, IconSpinner } from './icons';
 import { SpeedControl } from './SpeedControl';
 import { prefetchNext } from '../lib/prefetch';
 import { setupMediaSession, clearMediaSession, updatePositionState } from '../lib/media-session';
@@ -484,7 +485,7 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         </button>
         <button className="fp-round" onClick={handlePrev} disabled={isBuffering} title="Párrafo anterior" aria-label="Párrafo anterior">⏮︎</button>
         <button className="fp-play" onClick={handlePlayPause} disabled={isBuffering} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
-          {isBuffering ? '⏳' : isPlaying ? '❚❚' : '▶'}
+          {isBuffering ? <IconSpinner /> : isPlaying ? '❚❚' : <IconPlay />}
         </button>
         <button className="fp-round" onClick={handleNext} disabled={isBuffering} title="Párrafo siguiente" aria-label="Párrafo siguiente">⏭︎</button>
         <button

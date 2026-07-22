@@ -6,6 +6,7 @@ import {
   type ChapterDownloadProgress,
 } from '../lib/offline-download';
 import type { ExtractedDoc } from '../types';
+import { IconCheck, IconDownload } from './icons';
 
 interface Props {
   doc: ExtractedDoc;
@@ -65,14 +66,19 @@ export function OfflineDownloadButton({ doc, chapterIndex }: Props) {
     setStatus(result.failed > 0 ? 'partial' : 'done');
   }, [status, doc, chapterIndex]);
 
+  // SVG en vez de ⬇/✓ Unicode: iOS los pinta como emoji de color (icons.tsx).
   const label =
-    status === 'downloading' && progress
-      ? `${progress.done}/${progress.total}`
-      : status === 'done'
-        ? '✓'
-        : status === 'partial'
-          ? '⬇ reintentar'
-          : '⬇';
+    status === 'downloading' && progress ? (
+      `${progress.done}/${progress.total}`
+    ) : status === 'done' ? (
+      <IconCheck />
+    ) : status === 'partial' ? (
+      <>
+        <IconDownload /> reintentar
+      </>
+    ) : (
+      <IconDownload />
+    );
 
   const title =
     status === 'done'

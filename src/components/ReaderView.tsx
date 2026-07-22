@@ -11,6 +11,7 @@ import { ChapterList } from './ChapterList';
 import { PlayerBar } from './PlayerBar';
 import { AnnotationsPanel } from './AnnotationsPanel';
 import { OfflineDownloadButton } from './OfflineDownloadButton';
+import { IconReturn } from './icons';
 
 // Virtualización suave: por debajo de este umbral se renderiza el capítulo
 // completo (lo normal). Por encima, se renderiza una ventana alrededor del
@@ -287,7 +288,7 @@ export function ReaderView() {
           onClick={handleReturnToReading}
           aria-label="Volver a la palabra que se está leyendo"
         >
-          ↩ Volver a la lectura
+          <IconReturn /> Volver a la lectura
         </button>
       )}
 

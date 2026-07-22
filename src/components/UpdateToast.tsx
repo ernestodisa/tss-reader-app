@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { subscribeSwUpdate, hasUpdate, applyUpdate } from '../lib/sw-update';
+import { IconUp } from './icons';
 
 /**
  * Aviso flotante "hay versión nueva". Aparece cuando el service worker detecta
@@ -11,7 +12,7 @@ export function UpdateToast() {
   if (!show) return null;
   return (
     <button type="button" className="update-toast" onClick={applyUpdate}>
-      ⬆ Versión nueva disponible — toca para actualizar
+      <IconUp /> Versión nueva disponible — toca para actualizar
     </button>
   );
 }
