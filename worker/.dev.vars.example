@@ -1,0 +1,22 @@
+# worker/.dev.vars — SOLO desarrollo local (`wrangler dev`). Copia este archivo a
+# `.dev.vars` (gitignoreado) para trabajar el sync por identidad sin Cloudflare
+# Access delante:
+#
+#   cp .dev.vars.example .dev.vars
+#
+# `.dev.vars` lo carga automáticamente `wrangler dev` como variables de entorno
+# del worker. NO pongas DEV_FAKE_EMAIL en wrangler.toml [vars]: eso lo
+# desplegaría a producción y sería un bypass total de la autenticación (cualquiera
+# leería/escribiría la biblioteca de ese email sin sesión de Access).
+#
+# En producción esta variable NO existe y el worker exige el header
+# X-Verified-Email que inyecta la Pages Function tras validar el JWT de Access.
+
+# Email "verificado" simulado para dev. Cae en el mismo espacio de llaves R2 que
+# usaría una sesión real (sync/u/<email>).
+DEV_FAKE_EMAIL=dev@localhost
+
+# Opcional: llaves de motores TTS de pago para probar en local. Sin ellas, solo
+# el motor `edge` (sin llave) responde.
+# ELEVENLABS_API_KEY=
+# OPENAI_API_KEY=

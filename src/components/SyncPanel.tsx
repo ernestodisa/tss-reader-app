@@ -1,8 +1,34 @@
 import { useState, useCallback } from 'react';
 import { useLibraryStore } from '../store/library-store';
+import { useSyncStatus } from '../store/sync-status-store';
 import { generateSyncCode, pushProgress, pullProgress, pushBook, pullBook } from '../lib/sync-client';
 import { loadDoc, saveDoc } from '../lib/library-docs';
 import '../styles/library.css';
+
+/** Texto sobrio del estado del auto-sync por identidad (sin toasts). */
+function autoSyncLabel(
+  phase: ReturnType<typeof useSyncStatus.getState>['phase'],
+  lastSyncAt: number | null,
+  error: string | null,
+): string {
+  const when =
+    lastSyncAt != null
+      ? new Date(lastSyncAt).toLocaleString(undefined, {
+          day: '2-digit',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : null;
+  if (phase === 'error') {
+    return `Sincronización pendiente${error ? `: ${error}` : '.'}` + (when ? ` (última OK: ${when})` : '');
+  }
+  if (phase === 'pending') {
+    return when ? `Sincronizando… (última OK: ${when})` : 'Sincronizando…';
+  }
+  if (phase === 'ok' && when) return `Última sincronización: ${when}.`;
+  return 'Sincronización automática activa.';
+}
 
 /**
  * Panel de sincronización manual entre dispositivos, identificado por un
@@ -14,6 +40,10 @@ export function SyncPanel() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Estado del auto-sync por identidad (independiente del sync manual por código).
+  const autoPhase = useSyncStatus((s) => s.phase);
+  const autoLastSyncAt = useSyncStatus((s) => s.lastSyncAt);
+  const autoError = useSyncStatus((s) => s.error);
 
   const handleGenerate = useCallback(() => {
     const newCode = generateSyncCode();
@@ -120,6 +150,12 @@ export function SyncPanel() {
       </button>
       {expanded && (
         <div className="lib-sync__body">
+          <p
+            className="lib-sync__status"
+            role={autoPhase === 'error' ? 'status' : undefined}
+          >
+            {autoSyncLabel(autoPhase, autoLastSyncAt, autoError)}
+          </p>
           <p className="lib-sync__desc">
             Tu biblioteca y tu progreso ya se sincronizan solos con tu cuenta en cada
             dispositivo donde inicies sesión. Este código es solo para compartir con

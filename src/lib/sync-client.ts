@@ -1,11 +1,35 @@
-import type { LibraryEntry } from '../store/library-store';
+import type { LibraryEntry, Tombstone } from '../store/library-store';
 import type { ExtractedDoc } from '../types';
 
-const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787';
+// A7: default a la ruta relativa `/api` (same-origin en dev vía proxy de Vite y
+// en prod vía Pages Function). Solo se sobreescribe si se apunta a un worker
+// externo explícito.
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || '/api';
 
 export interface SyncPayload {
   books: LibraryEntry[];
+  /** Lápidas de libros borrados (M9). Opcional para compatibilidad con snapshots
+   *  viejos y con el sync por-código. */
+  tombstones?: Tombstone[];
   syncedAt: number;
+}
+
+/** Datos de control que el worker devuelve en las respuestas de /sync/me:
+ *  `etag` para la precondición optimista (A11) y `serverNow` para el offset de
+ *  reloj (M8). Ambos pueden faltar (respuestas 404 / snapshots viejos). */
+export interface SyncMeMeta {
+  etag: string | null;
+  serverNow: number | null;
+}
+
+function readMeta(resp: Response): SyncMeMeta {
+  const etag = resp.headers.get('ETag');
+  const serverNowRaw = resp.headers.get('X-Server-Now');
+  const serverNow = serverNowRaw != null ? Number(serverNowRaw) : null;
+  return {
+    etag: etag || null,
+    serverNow: serverNow != null && Number.isFinite(serverNow) ? serverNow : null,
+  };
 }
 
 // Nota: no reutilizamos AgentResult<T> de src/types/errors.ts porque su
@@ -151,19 +175,45 @@ export async function pushBook(
 // código ni header de usuario. En dev, WORKER_URL apunta al worker local y la
 // ruta relativa /sync/me se resuelve ahí igual que las de arriba.
 
-/** Progreso/biblioteca del usuario autenticado. 401 → sin sesión de Access. */
-export async function pushProgressMe(payload: SyncPayload): Promise<SyncResult<void>> {
+export interface PushMeOptions {
+  /** ETag conocido del snapshot en la nube. Si se envía, el worker aplica la
+   *  precondición If-Match y responde 412 si otro dispositivo escribió en medio
+   *  (A11 → el llamador hace pull+merge+re-push). */
+  ifMatch?: string;
+  /** `keepalive: true` en el PUT del snapshot para que el navegador NO lo mate al
+   *  ocultar/cerrar la pestaña (A8). Solo válido para el snapshot (≤64KB, el cap
+   *  de keepalive); los pushes de libro (hasta 8MB) NO pueden usarlo. */
+  keepalive?: boolean;
+}
+
+/** Progreso/biblioteca del usuario autenticado. 401 → sin sesión de Access; 412
+ *  (con ifMatch) → `conflict`. Devuelve el etag y serverNow frescos. */
+export async function pushProgressMe(
+  payload: SyncPayload,
+  options: PushMeOptions = {},
+): Promise<SyncResult<SyncMeMeta>> {
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (options.ifMatch) headers['If-Match'] = options.ifMatch;
     const resp = await fetch(`${WORKER_URL}/sync/me`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       credentials: 'include',
+      keepalive: options.keepalive === true,
       body: JSON.stringify(payload),
     });
     if (resp.status === 401) {
       return {
         success: false,
         error: { code: 'no_autenticado', message: 'Sin sesión de Access.', recoverable: true },
+      };
+    }
+    if (resp.status === 412) {
+      // Otro dispositivo/tab escribió después de nuestro último etag: el
+      // llamador debe pull+merge+re-push (convierte el lost-update en merge).
+      return {
+        success: false,
+        error: { code: 'conflict', message: 'Conflicto de versión (etag).', recoverable: true },
       };
     }
     if (!resp.ok) {
@@ -173,7 +223,7 @@ export async function pushProgressMe(payload: SyncPayload): Promise<SyncResult<v
         error: { code: 'sync_push_failed', message: body.error || `HTTP ${resp.status}`, recoverable: true },
       };
     }
-    return { success: true, data: undefined };
+    return { success: true, data: readMeta(resp) };
   } catch (err) {
     return {
       success: false,
@@ -186,7 +236,7 @@ export async function pushProgressMe(payload: SyncPayload): Promise<SyncResult<v
   }
 }
 
-export async function pullProgressMe(): Promise<SyncResult<SyncPayload>> {
+export async function pullProgressMe(): Promise<SyncResult<SyncPayload & SyncMeMeta>> {
   try {
     const resp = await fetch(`${WORKER_URL}/sync/me`, {
       method: 'GET',
@@ -200,7 +250,9 @@ export async function pullProgressMe(): Promise<SyncResult<SyncPayload>> {
     }
     if (resp.status === 404) {
       // Aún no hay nada guardado para esta identidad: biblioteca vacía en la nube.
-      return { success: true, data: { books: [], syncedAt: 0 } };
+      // Aun así puede traer X-Server-Now para calibrar el reloj.
+      const meta = readMeta(resp);
+      return { success: true, data: { books: [], tombstones: [], syncedAt: 0, ...meta } };
     }
     if (!resp.ok) {
       const body = await resp.json().catch(() => ({}));
@@ -210,7 +262,7 @@ export async function pullProgressMe(): Promise<SyncResult<SyncPayload>> {
       };
     }
     const data = (await resp.json()) as SyncPayload;
-    return { success: true, data };
+    return { success: true, data: { ...data, ...readMeta(resp) } };
   } catch (err) {
     return {
       success: false,

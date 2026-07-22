@@ -32,6 +32,15 @@ export interface PlaybackEngine {
   resume(): void;
   /** Pre-encola el SIGUIENTE chunk (mismo párrafo o primero del siguiente). */
   queueNext(mp3Parts: ArrayBuffer[], timings: WordTiming[], meta: QueuedChunkMeta, durationMs?: number): void;
+  /**
+   * A5: señala si hay al menos un fetch EN VUELO que alimentará la reproducción
+   * actual (siguiente chunk del párrafo o primer chunk del párrafo gapless).
+   * El motor MSE lo usa para NO confundir un underrun de red (buffer drenado
+   * mientras el chunk que sigue aún se descarga) con el fin real del stream. El
+   * motor clásico lo ignora (no-op): reasigna `src` por chunk y no tiene el
+   * concepto de "stream drenado a la espera de más datos anexados".
+   */
+  setExpectingMore(expecting: boolean): void;
   fullStop(): void;
   /** ms RELATIVOS al chunk/párrafo actual (no al stream completo). */
   getCurrentPositionMs(): number;

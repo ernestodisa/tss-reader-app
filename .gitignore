@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Incremental de TypeScript (build artifact): ruido en cada diff, no se versiona.
+tsconfig.tsbuildinfo
+
+# Cloudflare Wrangler local state y secretos de dev (NUNCA commitear:
+# .dev.vars puede contener DEV_FAKE_EMAIL y llaves locales).
+.wrangler/
+.dev.vars
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

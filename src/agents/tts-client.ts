@@ -17,6 +17,30 @@ interface RawAudioEntry {
   durationMs: number;
 }
 
+// ── Dedupe de fetches en vuelo (M16) ─────────────────────────────────────
+// Si varios caminos piden el MISMO chunk a la vez (reproducción del chunk +
+// queueUpcoming + prefetch + descarga offline del capítulo que se escucha) sin
+// dedupe se disparan 3-4 POST idénticos contra el Edge TTS frágil → 429. Aquí
+// comparten UN solo POST por chunk. Refcount de "interesados": el POST solo se
+// aborta de verdad (AbortController interno) cuando NADIE lo espera ya. Esto
+// resuelve a la vez B8 (el "Cancelar" de una descarga aborta el request de red
+// cuando es suyo) SIN el efecto colateral de matar el mismo chunk si además lo
+// está pidiendo la reproducción — el fetch compartido no está atado al signal
+// de un solo caller, así que cancelar la descarga no puede tumbar el audio.
+interface InflightFetch {
+  promise: Promise<AgentResult<TTSResponse>>;
+  controller: AbortController;
+  waiters: number;
+}
+const inflight = new Map<string, InflightFetch>();
+
+function abortedResult(chunkId: string): AgentResult<TTSResponse> {
+  return {
+    success: false,
+    error: { step: 'tts', chunkId, code: 'aborted', message: 'fetch cancelado', recoverable: false },
+  };
+}
+
 // ── Public API ──────────────────────────────────────────────────────────
 
 /** ¿Este chunk ya está completo en cache (audio crudo + timings)? Lo usa la
@@ -28,7 +52,10 @@ export async function hasCachedChunk(chunkId: string): Promise<boolean> {
   return !!timings;
 }
 
-export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse>> {
+export async function fetchTTS(
+  chunk: TTSChunk,
+  signal?: AbortSignal,
+): Promise<AgentResult<TTSResponse>> {
   // 1. Check client-side cache ─────────────────────────────────────────
   const cachedRaw = await rawAudioCache.get<RawAudioEntry>(`raw:${chunk.id}`);
   const cachedTimings = await useCacheStore.getState().getTimings(chunk.id);
@@ -51,9 +78,73 @@ export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse
     };
   }
 
-  // 2. Fetch from Worker ────────────────────────────────────────────────
+  // 2. Red con dedupe (M16) + abort real (B8) ──────────────────────────
+  if (signal?.aborted) return abortedResult(chunk.id);
+
+  let entry = inflight.get(chunk.id);
+  if (!entry) {
+    const controller = new AbortController();
+    const created: InflightFetch = {
+      promise: fetchTTSFromNetwork(chunk, controller.signal),
+      controller,
+      waiters: 0,
+    };
+    inflight.set(chunk.id, created);
+    // La entrada sale del mapa al terminar (éxito, error o abort): el próximo
+    // fetch del mismo chunk arranca fresco y nunca reusa una promesa muerta.
+    void created.promise.finally(() => {
+      if (inflight.get(chunk.id) === created) inflight.delete(chunk.id);
+    });
+    entry = created;
+  }
+  const active = entry;
+  active.waiters++;
+
+  const release = (): void => {
+    active.waiters--;
+    // Nadie más espera este chunk → aborta el POST en vuelo (no satura Edge TTS).
+    if (active.waiters <= 0) active.controller.abort();
+  };
+
+  // Caller sin signal (reproducción, prefetch, queueUpcoming): espera directa.
+  if (!signal) {
+    try {
+      return await active.promise;
+    } finally {
+      release();
+    }
+  }
+
+  // Caller con signal (descarga offline): puede cancelar SU espera al instante;
+  // si resulta ser el último interesado, `release()` aborta el POST compartido.
+  const sig = signal; // captura para que TS no lo ensanche dentro del closure
+  return await new Promise<AgentResult<TTSResponse>>((resolve) => {
+    let settled = false;
+    function onAbort(): void {
+      finish(abortedResult(chunk.id));
+    }
+    function finish(r: AgentResult<TTSResponse>): void {
+      if (settled) return;
+      settled = true;
+      sig.removeEventListener('abort', onAbort);
+      release();
+      resolve(r);
+    }
+    sig.addEventListener('abort', onAbort);
+    void active.promise.then(finish, () => finish(abortedResult(chunk.id)));
+  });
+}
+
+/** Un solo POST /tts sin dedupe. `signal` es el del AbortController interno del
+ *  dedupe: al abortarse, `fetch` lanza y el catch de red devuelve un error
+ *  recuperable SIN cachear nada (el chunk abortado no envenena el cache). */
+async function fetchTTSFromNetwork(
+  chunk: TTSChunk,
+  signal: AbortSignal,
+): Promise<AgentResult<TTSResponse>> {
   try {
     const resp = await fetch(`${WORKER_URL}/tts`, {
+      signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -116,6 +207,35 @@ export async function fetchTTS(chunk: TTSChunk): Promise<AgentResult<TTSResponse
           chunkId: chunk.id,
           code: 'empty_audio',
           message: 'TTS devolvió audio vacío (0 bytes)',
+          recoverable: true,
+          retryAfterMs: 800,
+        },
+      };
+    }
+
+    // B12: además de 0 bytes, rechaza cuerpos que NO son MP3. Edge TTS a veces
+    // responde 200 con un cuerpo de error/no-audio o con bytes basura; cachearlo
+    // lo vuelve un fallo DETERMINISTA 30 días (la purga solo cura 0-bytes). Señal
+    // barata y agnóstica del engine: todo MP3 válido empieza con un frame sync
+    // MPEG (0xFF, y el 2º byte con los 3 bits altos en 1 → 0xEx/0xFx) o con una
+    // etiqueta ID3 ("ID3", que sí antepone OpenAI). Si no aparece ninguno, es
+    // basura → error RECUPERABLE ANTES de cachear (mismo patrón que 0-bytes).
+    // FALSO-NEGATIVO RESIDUAL DOCUMENTADO: un MP3 con cabecera válida pero
+    // truncado a media reproducción SÍ pasa este guard — detectarlo exigiría
+    // parsear frames o asumir un bitrate por engine (frágil con multi-engine),
+    // así que se acepta el trade-off a favor de una heurística O(1) sin falsos
+    // positivos.
+    const head = new Uint8Array(audio, 0, Math.min(3, audio.byteLength));
+    const isId3 = head.length >= 3 && head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33;
+    const isMpegSync = head.length >= 2 && head[0] === 0xff && (head[1] & 0xe0) === 0xe0;
+    if (!isId3 && !isMpegSync) {
+      return {
+        success: false,
+        error: {
+          step: 'tts',
+          chunkId: chunk.id,
+          code: 'empty_audio',
+          message: 'TTS devolvió un cuerpo sin cabecera MP3 válida (¿no-audio/truncado?)',
           recoverable: true,
           retryAfterMs: 800,
         },

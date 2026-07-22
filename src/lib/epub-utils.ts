@@ -21,12 +21,32 @@ export async function extractEPub(
 
   // Wait for book to be fully loaded — con tope: si epubjs se atora con una
   // estructura interna rara, mejor un error accionable que un spinner eterno.
-  await Promise.race([
-    book.ready,
-    new Promise((_, rej) =>
-      setTimeout(() => rej(new Error('Invalid ePub: la estructura interna no se pudo leer (timeout)')), 30_000),
-    ),
-  ]);
+  let readyTimeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      book.ready,
+      new Promise((_, rej) => {
+        readyTimeout = setTimeout(
+          () => rej(new Error('Invalid ePub: la estructura interna no se pudo leer (timeout)')),
+          30_000,
+        );
+      }),
+    ]);
+  } catch (e) {
+    // B11: al vencer el timeout, epubjs queda con recursos/listeners colgando;
+    // los liberamos (best-effort) antes de propagar para no fugar memoria en
+    // cada import fallido.
+    try {
+      book.destroy();
+    } catch {
+      // ya destruido o a medio construir: nada que hacer
+    }
+    throw e;
+  } finally {
+    // B11: tras éxito (o error) cancela el timer pendiente — si no, sobrevive
+    // 30 s reteniendo el closure de rechazo.
+    clearTimeout(readyTimeout);
+  }
 
   const title = book.packaging?.metadata?.title || file.name.replace(/\.epub$/i, '');
   const author = book.packaging?.metadata?.creator;

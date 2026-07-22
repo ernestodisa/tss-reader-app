@@ -202,17 +202,56 @@ input[type='range'] {
   left: 50%;
   transform: translateX(-50%);
   z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 10px 18px;
-  font-family: var(--font-ui);
-  font-size: 13.5px;
-  font-weight: 600;
+  padding: 4px 6px 4px 14px;
   color: var(--accent-ink);
   background: var(--accent);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-  cursor: pointer;
   max-width: min(92vw, 460px);
+}
+
+/* Botón principal (texto + activar): B9 lo separa del botón de cerrar para no
+   anidar botones. Transparente sobre el fondo del toast. */
+.update-toast-action {
+  border: none;
+  background: none;
+  color: inherit;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 4px;
+  text-align: left;
+}
+
+.update-toast-action:disabled {
+  cursor: default;
+  opacity: 0.9;
+}
+
+/* Botón de cerrar (descartar el aviso esta sesión). */
+.update-toast-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.update-toast-close:hover {
+  opacity: 1;
 }
 
 /* Animación del spinner de carga (icons.tsx → IconSpinner). */

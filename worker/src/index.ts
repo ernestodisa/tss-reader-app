@@ -11,12 +11,22 @@ const SYNC_CODE_RE = /^[A-Za-z0-9]{8,32}$/;
 // bookId lo genera library-store (`epub-<título>-<ts>`): puede llevar espacios
 // y acentos. Se acepta cualquier cosa sin '/' y de tamaño razonable.
 const BOOK_ID_OK = (id: string) => id.length > 0 && id.length <= 256 && !id.includes('/');
+// M11 — defensa en profundidad sobre el email que forma la llave R2. Aunque hoy
+// el email SIEMPRE viene del JWT validado por la Pages Function (no del cliente),
+// esta allowlist evita que un email con '/' o espacios escriba fuera de su
+// prefijo `sync/u/<email>` si el worker se re-publicara standalone. Elegimos
+// rechazar (allowlist) en vez de encodeURIComponent para que la llave sea
+// legible y auditable en R2.
+const EMAIL_OK = (email: string) => /^[^/\s]{1,320}$/.test(email);
 const VALID_ENGINES: EngineId[] = ['edge', 'elevenlabs', 'openai'];
 
 function corsHeaders(): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Expose-Headers': 'X-Words, X-Duration, X-Chunk-Id, X-Cache',
+    // ETag / X-Server-Now: el cliente los lee para la precondición optimista
+    // (If-Match) y el offset de reloj del sync por identidad.
+    'Access-Control-Expose-Headers':
+      'X-Words, X-Duration, X-Chunk-Id, X-Cache, ETag, X-Server-Now',
   };
 }
 
@@ -277,21 +287,127 @@ async function handleSyncMe(request: Request, env: Env, segments: string[]): Pro
     return jsonError(401, { error: 'no_autenticado' });
   }
   const email = rawEmail.toLowerCase();
+  // M11: la llave R2 se forma con el email; rechazamos cualquiera que pudiera
+  // escapar del prefijo `sync/u/<email>` (defensa en profundidad).
+  if (!EMAIL_OK(email)) {
+    return jsonError(400, { error: 'invalid_identity' });
+  }
 
   if (!env.TTS_CACHE) {
     return jsonError(503, { error: 'sync_unavailable' });
   }
 
-  // /sync/me/book/{bookId} — libro completo del usuario.
+  const userPrefix = `sync/u/${email}`;
+
+  // /sync/me/book/{bookId} — libro completo del usuario. Sin etag (hasta 8MB, no
+  // aplica el flujo optimista); se mantiene el GET/PUT genérico.
   if (segments.length > 1) {
     if (segments[1] !== 'book' || segments.length !== 3 || !BOOK_ID_OK(segments[2])) {
       return jsonError(404, { error: 'not_found' });
     }
-    return syncJsonObject(request, env, `sync/u/${email}/book/${segments[2]}`, MAX_BOOK_BYTES);
+    return syncJsonObject(request, env, `${userPrefix}/book/${segments[2]}`, MAX_BOOK_BYTES);
   }
 
-  // /sync/me — progreso del usuario.
-  return syncJsonObject(request, env, `sync/u/${email}`, MAX_SYNC_BYTES);
+  // /sync/me — progreso del usuario: con etag (If-Match), serverNow y aplicación
+  // de tombstones.
+  return handleSyncMeProgress(request, env, userPrefix);
+}
+
+const now = () => Date.now();
+
+/** Cabeceras comunes de las respuestas del snapshot por identidad: serverNow
+ *  (para el offset de reloj del cliente, M8) y opcionalmente el ETag. */
+function meHeaders(etag?: string | null): Record<string, string> {
+  const h: Record<string, string> = { ...corsHeaders(), 'X-Server-Now': String(now()) };
+  if (etag) h.ETag = etag;
+  return h;
+}
+
+// Progreso del usuario (/sync/me) con control de concurrencia optimista.
+// - GET: devuelve el snapshot + ETag + X-Server-Now (404 si no hay nada, con
+//   X-Server-Now igual para calibrar el reloj).
+// - PUT: valida JSON y tope; si viene If-Match aplica `onlyIf: { etagMatches }`
+//   (put devuelve null si la precondición falla → 412). Antes de responder OK,
+//   procesa tombstones borrando los objetos book/{id} en R2 (best effort, M9).
+async function handleSyncMeProgress(
+  request: Request,
+  env: Env,
+  userPrefix: string,
+): Promise<Response> {
+  const bucket = env.TTS_CACHE!;
+  const objKey = userPrefix;
+
+  if (request.method === 'GET') {
+    const obj = await bucket.get(objKey);
+    if (!obj) {
+      return new Response(JSON.stringify({ error: 'not_found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json', ...meHeaders() },
+      });
+    }
+    return new Response(obj.body, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...meHeaders(obj.httpEtag) },
+    });
+  }
+
+  if (request.method === 'PUT') {
+    const raw = await request.arrayBuffer();
+    if (raw.byteLength > MAX_SYNC_BYTES) {
+      return jsonError(413, { error: 'payload_too_large', maxBytes: MAX_SYNC_BYTES });
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(raw));
+    } catch {
+      return jsonError(400, { error: 'invalid_json' });
+    }
+
+    // If-Match: precondición optimista. R2 `put` con onlyIf devuelve null si la
+    // precondición falla (no escribe) → 412, sin ventana de lectura-antes-de-
+    // escritura (a diferencia de un head+put manual). Sin If-Match, PUT ciego
+    // (primer alta / cliente sin etag): ventana residual mínima documentada.
+    const ifMatch = request.headers.get('If-Match');
+    const etagMatches = ifMatch ? ifMatch.replace(/^W\//, '').replace(/"/g, '') : undefined;
+
+    let putResult: R2Object | null;
+    if (etagMatches) {
+      putResult = await bucket.put(objKey, raw, {
+        httpMetadata: { contentType: 'application/json' },
+        onlyIf: { etagMatches },
+      });
+    } else {
+      putResult = await bucket.put(objKey, raw, {
+        httpMetadata: { contentType: 'application/json' },
+      });
+    }
+    if (!putResult) {
+      // La precondición falló: otro escritor ganó. El cliente hará pull+merge+re-PUT.
+      return new Response(JSON.stringify({ error: 'etag_mismatch' }), {
+        status: 412,
+        headers: { 'Content-Type': 'application/json', ...meHeaders() },
+      });
+    }
+
+    // M9 — tombstones: borra el objeto book/{id} de cada libro borrado (best
+    // effort; el snapshot es la fuente de verdad del listado, esto solo libera
+    // el contenido de hasta 8MB que quedaría huérfano en R2).
+    if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { tombstones?: unknown }).tombstones)) {
+      const tombstones = (parsed as { tombstones: Array<{ id?: unknown }> }).tombstones;
+      for (const t of tombstones) {
+        if (t && typeof t.id === 'string' && BOOK_ID_OK(t.id)) {
+          await bucket.delete(`${userPrefix}/book/${t.id}`).catch(() => {});
+        }
+      }
+    }
+
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...meHeaders(putResult.httpEtag) },
+    });
+  }
+
+  return jsonError(405, { error: 'method_not_allowed' });
 }
 
 // GET/PUT de un objeto JSON en R2 con tope de tamaño — semántica compartida por

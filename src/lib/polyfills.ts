@@ -32,13 +32,35 @@ if (
 ) {
   (ReadableStream.prototype as any).values = function ({ preventCancel = false } = {}) {
     const reader = this.getReader();
+    let released = false;
+    // B6: libera el lock una sola vez, sea por fin normal o por return().
+    const release = () => {
+      if (released) return;
+      released = true;
+      try {
+        reader.releaseLock();
+      } catch {
+        // ya liberado
+      }
+    };
     return {
-      next() {
-        return reader.read();
+      async next() {
+        const result = await reader.read();
+        // B6: al terminar la iteración normal (done: true) también hay que
+        // soltar el lock — antes solo lo hacía return() (salida anticipada),
+        // así que una iteración que se agotaba dejaba el stream bloqueado.
+        if (result.done) release();
+        return result;
       },
       async return(value: unknown) {
-        if (!preventCancel) await reader.cancel();
-        reader.releaseLock();
+        if (!preventCancel) {
+          try {
+            await reader.cancel();
+          } catch {
+            // el reader pudo quedar sin lock si ya terminó por next()
+          }
+        }
+        release();
         return { done: true, value };
       },
       [Symbol.asyncIterator]() {

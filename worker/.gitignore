@@ -2,3 +2,5 @@
 node_modules/
 dist/
 *.tsbuildinfo
+# Secretos/vars de desarrollo local (wrangler dev). NUNCA commitear.
+.dev.vars

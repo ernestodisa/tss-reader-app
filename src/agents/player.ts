@@ -136,6 +136,13 @@ export class PlayerAgent implements PlaybackEngine {
     this.queuedMeta = meta;
   }
 
+  // A5: no-op en el motor clásico. Reasigna `src` por chunk (no hay stream
+  // continuo ni "buffer drenado a la espera de más datos"), así que no necesita
+  // saber de fetches en vuelo para distinguir un underrun del fin del párrafo.
+  setExpectingMore(_expecting: boolean): void {
+    /* no-op */
+  }
+
   private clearQueued(): void {
     if (this.queuedUrl) {
       URL.revokeObjectURL(this.queuedUrl);
@@ -218,6 +225,17 @@ export class PlayerAgent implements PlaybackEngine {
 
   destroy(): void {
     this.fullStop();
+    // A2: anula los callbacks registrados. El motor es un SINGLETON compartido;
+    // si un fetch TTS en vuelo de un PlayerBar ya desmontado resolviera y
+    // llamara load(), sin esto los callbacks viejos (endCallback/chunkStart/
+    // error) revivirían la cadena del libro cerrado. El PlayerBar que se monte
+    // de nuevo re-registra los suyos en su useEffect (orden seguro en StrictMode:
+    // cleanup→destroy→efecto vuelve a registrar).
+    this.wordCallback = null;
+    this.endCallback = null;
+    this.errorCallback = null;
+    this.chunkStartCallback = null;
+    this.playBlockedCallback = null;
     this.audio = null;
   }
 

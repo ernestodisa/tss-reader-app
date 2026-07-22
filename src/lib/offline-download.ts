@@ -90,21 +90,32 @@ export async function downloadChapterAudio(
       const chunk = chunks[next++];
 
       // fetchTTS ya consulta el cache primero: los chunks presentes cuentan
-      // como hechos sin tocar la red.
+      // como hechos sin tocar la red. Le pasamos `signal` (B8) para que
+      // "Cancelar" aborte el POST en vuelo de verdad, no solo entre chunks.
       let ok = false;
       for (let attempt = 0; attempt < MAX_RETRIES && !ok; attempt++) {
         if (signal?.aborted) return;
-        const result = await fetchTTS(chunk);
+        const result = await fetchTTS(chunk, signal);
         if (result.success) {
-          ok = true;
+          // M15: "done" solo cuenta si el chunk quedó PERSISTIDO. Bajo presión
+          // de quota el put pudo fallar o la evicción LRU pudo tirar este mismo
+          // chunk recién bajado → hasCachedChunk lo confirma leyéndolo del cache.
+          // Si no persistió, NO lo damos por hecho: reintenta (y si nunca cuaja,
+          // cuenta como fallo, no como "✓ listo sin conexión" mentiroso).
+          if (await hasCachedChunk(chunk.id)) {
+            ok = true;
+          } else {
+            await new Promise((r) => setTimeout(r, 300));
+          }
         } else if (result.error.recoverable) {
           // 429/red: espera lo que pida el worker y reintenta.
           await new Promise((r) => setTimeout(r, result.error.retryAfterMs ?? 1500));
         } else {
-          break; // error duro: no insistir con este chunk
+          break; // error duro (o abort): no insistir con este chunk
         }
       }
 
+      if (signal?.aborted) return; // no contabilices el chunk en curso si cancelaron
       if (ok) progress.done++;
       else progress.failed++;
       onProgress({ ...progress });

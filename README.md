@@ -102,18 +102,26 @@ cp .env.example .env
 ```bash
 cd worker
 
-# Crear bucket R2 para cache
-npx wrangler r2 bucket create folio-tts-cache
+# Bucket R2 para cache (nombre real, se conserva a propósito)
+npx wrangler r2 bucket create speechify-tts-cache
 
-# Deploy del Worker
+# Deploy del Worker (opcional: solo fuente/dev; workers_dev=false → sin URL pública)
 npx wrangler deploy
 ```
 
-Anota la URL del Worker (ej: `https://folio-tts.tu-subdomain.workers.dev`) y ponla en `.env`:
+**No** apuntes el frontend a un `workers.dev`. `VITE_WORKER_URL` se queda en
+`/api` (su default) en producción **y** en desarrollo: la app siempre habla
+same-origin. En producción la Pages Function sirve `/api/*` detrás de Cloudflare
+Access (valida el JWT e inyecta `X-Verified-Email`, sin el cual el sync por
+identidad da `401`); en dev, el proxy de Vite reenvía `/api/*` → `localhost:8787`.
 
 ```
-VITE_WORKER_URL=https://folio-tts.tu-subdomain.workers.dev
+VITE_WORKER_URL=/api
 ```
+
+Para probar el sync en dev sin Access delante, copia `worker/.dev.vars.example`
+a `worker/.dev.vars` (define `DEV_FAKE_EMAIL`). Detalle completo en
+[DEPLOYMENT.md](DEPLOYMENT.md).
 
 ### 6. Ejecutar en desarrollo
 

@@ -128,7 +128,21 @@ function splitBySentence(text: string): string[] {
   // (índices, tablas, texto corrido) y el worker rechaza >2000 chars con
   // text_too_long — el párrafo quedaba atorado para siempre. Partimos las
   // oraciones gigantes por el último espacio antes del límite.
-  const HARD_LIMIT = 230;
+  //
+  // B7 — nunca partir una PALABRA a media (URLs/hashes/tablas sin espacios):
+  // el karaoke cuenta palabras con split(/\s+/) tanto en el párrafo completo
+  // (KaraokeText) como al acumular chain.wordOffset por chunk (PlayerBar). Si un
+  // corte duro parte "foobar" en "foo"+"bar", el párrafo lo cuenta como 1 token
+  // pero los chunks suman 2 → wordOffset se corre +1 y el seguimiento por palabra
+  // muere el resto del párrafo. Solución elegida (la más simple que mantiene el
+  // conteo consistente): al no haber espacio dentro de la ventana objetivo,
+  // mantener la palabra ENTERA en un solo chunk aunque exceda HARD_LIMIT, hasta
+  // el tope REAL del worker (WORKER_MAX < 2000). Así un run monolítico queda como
+  // UN token en un chunk y el conteo cuadra. Solo un run monolítico > WORKER_MAX
+  // (patológico, prácticamente inexistente) se parte a media palabra; ahí se
+  // acepta el desfase de conteo — ese token ya no es "karaokeable" de todos modos.
+  const HARD_LIMIT = 230; // tamaño objetivo (calidad TTS / arranque rápido)
+  const WORKER_MAX = 1900; // tope real del worker (rechaza text.length > 2000)
   const out: string[] = [];
   for (const s of sentences) {
     if (s.length <= HARD_LIMIT) {
@@ -138,7 +152,14 @@ function splitBySentence(text: string): string[] {
     let rest = s;
     while (rest.length > HARD_LIMIT) {
       let cut = rest.lastIndexOf(' ', HARD_LIMIT);
-      if (cut <= 0) cut = HARD_LIMIT; // sin espacios: corte duro
+      if (cut <= 0) {
+        // Sin espacio en la ventana objetivo: no partimos la palabra ahí.
+        // Buscamos el PRÓXIMO espacio (deja la palabra entera) o el fin del
+        // texto; solo si eso supera el tope del worker cortamos a media palabra.
+        const nextSpace = rest.indexOf(' ', HARD_LIMIT);
+        cut = nextSpace === -1 ? rest.length - 1 : nextSpace;
+        if (cut + 1 > WORKER_MAX) cut = WORKER_MAX - 1;
+      }
       out.push(rest.slice(0, cut + 1));
       rest = rest.slice(cut + 1);
     }

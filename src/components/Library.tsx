@@ -50,7 +50,15 @@ export function Library() {
       useDocumentStore.setState({ doc, isLoading: false, error: null, currentBookId: id });
       const book = useLibraryStore.getState().books.find((b) => b.id === id);
       if (book && book.lastReadChapter != null && book.lastReadParagraph != null) {
-        usePlaybackStore.getState().seekToParagraph(book.lastReadChapter, book.lastReadParagraph);
+        // B2: clampa los índices restaurados contra el doc REAL antes de aplicarlos.
+        // Un libro re-extraído (parser nuevo, menos capítulos/párrafos) puede tener
+        // guardado un índice fuera de rango → hacer seek ahí rompería la lectura.
+        const ci = Math.max(0, Math.min(book.lastReadChapter, doc.chapters.length - 1));
+        const chapter = doc.chapters[ci];
+        const pi = chapter
+          ? Math.max(0, Math.min(book.lastReadParagraph, chapter.paragraphs.length - 1))
+          : 0;
+        usePlaybackStore.getState().seekToParagraph(ci, pi);
       }
     } catch (err) {
       console.error('Error al abrir el libro', err);

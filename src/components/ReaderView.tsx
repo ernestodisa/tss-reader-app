@@ -20,7 +20,15 @@ const VIRTUALIZE_THRESHOLD = 300;
 const EST_PARAGRAPH_HEIGHT = 90; // px, estimación gruesa para los espaciadores
 const OVERSCAN = 12; // párrafos extra renderizados fuera de viewport a cada lado
 const MANUAL_SCROLL_GUARD_MS = 3000; // no forzar auto-scroll si el usuario scrolleó hace <3s
-const PROGRAMMATIC_SCROLL_MS = 800; // ventana durante la que el scroll suave se considera nuestro
+// A12/M13: clasificación de scroll por POSICIÓN DESTINO, no por timer. Un scroll
+// suave no tiene duración acotada, así que en vez de una "ventana de N ms" se
+// sigue la distancia al destino: mientras disminuye (o queda ≤ epsilon) es
+// nuestro; si aumenta, el usuario metió mano. SAFETY = tope por si el suave nunca
+// llega (viewport cambió, animación cancelada). CORRECTION_MIN_PX = umbral para
+// el segundo ajuste con rect real en virtualizado.
+const PROGRAMMATIC_EPSILON = 4; // px de holgura de llegada
+const PROGRAMMATIC_SAFETY_MS = 3000; // limpia el tracking si el destino nunca se alcanza
+const CORRECTION_MIN_PX = 24; // px: recentrado post-scroll solo si está más descentrado que esto
 
 export function ReaderView() {
   const { doc } = useDocument();
@@ -32,12 +40,27 @@ export function ReaderView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
   const lastManualScrollRef = useRef(0);
-  const programmaticUntilRef = useRef(0);
+  // A12/M13: seguimiento del scroll programático en vuelo. targetRef = destino
+  // esperado (null si no hay ninguno); lastDistRef = última distancia medida
+  // (para clasificar acercamiento vs alejamiento); isCorrectionRef = si el scroll
+  // en curso es ya el segundo ajuste (para no re-corregir en bucle); safetyRef =
+  // timeout de seguridad que suelta el ref si el suave nunca llega.
+  const programmaticTargetRef = useRef<number | null>(null);
+  const programmaticLastDistRef = useRef(0);
+  const programmaticIsCorrectionRef = useRef(false);
+  const programmaticSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const correctRetryRef = useRef(false);
+  // M12: distinguir navegación EXPLÍCITA de capítulo (bumpea generación) del
+  // AUTO-AVANCE gapless (no la bumpea), sin estado global nuevo — comparando la
+  // generación actual contra la vista en el último cambio de capítulo.
+  const generationId = usePlaybackStore((s) => s.generationId);
+  const prevGenRef = useRef(generationId);
+  const prevChapterRef = useRef(chapterIndex);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(0);
-  // "Despegado": el usuario scrolleó y el párrafo activo (con la palabra
-  // subrayada) quedó fuera de pantalla. Mientras dure, el auto-scroll no pelea
-  // y se muestra un botón temporal para volver a la lectura en voz.
+  // "Despegado": el usuario scrolleó y la PALABRA activa del karaoke quedó fuera
+  // de pantalla. Mientras dure, el auto-scroll no pelea y se muestra un botón
+  // temporal para volver a la lectura en voz.
   const [detached, setDetached] = useState(false);
 
   const chapter = doc?.chapters[chapterIndex];
@@ -56,33 +79,49 @@ export function ReaderView() {
     return [s, e];
   }, [virtualize, scrollTop, viewportH, total]);
 
-  // ¿El párrafo activo está (al menos parcialmente) visible en el contenedor?
-  // Bajo virtualización, si quedó fuera de la ventana renderizada ni siquiera
-  // está en el DOM → definitivamente fuera de pantalla.
+  // ── Scroll programático: armado / limpieza del tracking ──────────────────
+  const clearProgrammatic = useCallback(() => {
+    programmaticTargetRef.current = null;
+    if (programmaticSafetyRef.current) {
+      clearTimeout(programmaticSafetyRef.current);
+      programmaticSafetyRef.current = null;
+    }
+  }, []);
+
+  // Arma el seguimiento de un scroll programático hacia `targetTop`. Desde aquí
+  // y hasta llegar (≤ epsilon) o hasta que el usuario interrumpa, el listener de
+  // scroll NO arma el guard manual ni evalúa despegue. `isCorrection` marca el
+  // segundo ajuste (rect real) para que su llegada no dispare otra corrección.
+  const armProgrammatic = useCallback((targetTop: number, isCorrection: boolean) => {
+    const el = scrollRef.current;
+    programmaticTargetRef.current = targetTop;
+    programmaticLastDistRef.current = Math.abs((el?.scrollTop ?? 0) - targetTop);
+    programmaticIsCorrectionRef.current = isCorrection;
+    if (programmaticSafetyRef.current) clearTimeout(programmaticSafetyRef.current);
+    programmaticSafetyRef.current = setTimeout(() => {
+      // El suave nunca llegó (viewport cambió, animación cancelada): suelta el
+      // ref para no ignorar los scrolls del usuario indefinidamente.
+      programmaticTargetRef.current = null;
+      programmaticSafetyRef.current = null;
+    }, PROGRAMMATIC_SAFETY_MS);
+  }, []);
+
+  // A13: ¿la PALABRA activa (misma geometría que el seguimiento fino) está
+  // visible en el contenedor con un margen razonable? Sin palabra montada, cae
+  // al rect del párrafo. Así, perder de vista la palabra dentro de un párrafo
+  // gigante SÍ despega (antes el párrafo "seguía visible" y no había escape).
   const isActiveVisible = useCallback((): boolean => {
     const el = scrollRef.current;
     if (!el) return true;
     if (virtualize && (paragraphIndex < start || paragraphIndex >= end)) return false;
-    const node = activeRef.current;
+    const word = el.querySelector<HTMLElement>('.karaoke-text .kw-current');
+    const node = word ?? activeRef.current;
     if (!node) return false;
     const c = el.getBoundingClientRect();
     const r = node.getBoundingClientRect();
-    return r.bottom > c.top && r.top < c.bottom;
+    const margin = Math.min(40, c.height * 0.08);
+    return r.bottom > c.top + margin && r.top < c.bottom - margin;
   }, [virtualize, paragraphIndex, start, end]);
-
-  // ── Scroll manual vs programático ────────────────────────────────────────
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    setScrollTop(el.scrollTop);
-    if (el.clientHeight !== viewportH) setViewportH(el.clientHeight);
-    // Si el scroll no lo disparamos nosotros, es del usuario → arma el guard
-    // y evalúa si nos "despegó" de la lectura (o si regresó solo al punto).
-    if (Date.now() >= programmaticUntilRef.current) {
-      lastManualScrollRef.current = Date.now();
-      setDetached(!isActiveVisible());
-    }
-  }, [viewportH, isActiveVisible]);
 
   // Mide el viewport al montar / cambiar de doc.
   useEffect(() => {
@@ -91,20 +130,98 @@ export function ReaderView() {
   }, [doc]);
 
   // ── Auto-scroll al párrafo activo cuando avanza la reproducción ──────────
-  // Guard: si el usuario scrolleó manualmente en los últimos ~3s, no peleamos.
+  // Calcula el destino (rect REAL si el párrafo está montado; estimación por
+  // altura en virtualizado si no), lo registra como programático y hace scroll
+  // suave. Guard: si el usuario scrolleó hace <3s, no peleamos.
   const scrollToActive = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    programmaticUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS;
-    if (virtualize) {
-      // El párrafo activo puede no estar en el DOM; posiciona la ventana por
-      // altura estimada para centrarlo, y el render seguirá al nuevo scrollTop.
-      const target = paragraphIndex * EST_PARAGRAPH_HEIGHT - el.clientHeight / 2;
-      el.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+    const node =
+      virtualize && (paragraphIndex < start || paragraphIndex >= end)
+        ? null
+        : activeRef.current;
+    let target: number;
+    if (node) {
+      const c = el.getBoundingClientRect();
+      const r = node.getBoundingClientRect();
+      const desired = c.height / 2 - r.height / 2; // centrar el párrafo
+      target = el.scrollTop + (r.top - c.top) - desired;
+    } else if (virtualize) {
+      // Párrafo activo fuera de la ventana renderizada → destino ESTIMADO; el
+      // render seguirá al nuevo scrollTop y luego se corrige con el rect real.
+      target = paragraphIndex * EST_PARAGRAPH_HEIGHT - el.clientHeight / 2;
     } else {
-      activeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return; // no virtualizado y sin nodo: nada que centrar
     }
-  }, [virtualize, paragraphIndex]);
+    target = Math.max(0, target);
+    if (Math.abs(el.scrollTop - target) <= PROGRAMMATIC_EPSILON) return; // ya está
+    armProgrammatic(target, false);
+    el.scrollTo({ top: target, behavior: 'smooth' });
+  }, [virtualize, paragraphIndex, start, end, armProgrammatic]);
+
+  // A12: tras completar un scroll programático ESTIMADO (virtualizado), corrige
+  // con el rect REAL del párrafo ya montado — en vez de evaluar despegue con un
+  // destino aproximado que pudo dejar el párrafo fuera de pantalla.
+  const correctAfterProgrammatic = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !virtualize) return;
+    const node = activeRef.current;
+    if (!node) {
+      // El párrafo activo aún no está montado tras el scroll estimado: un único
+      // reintento de scrollToActive (correctRetryRef evita el bucle).
+      if (correctRetryRef.current) { correctRetryRef.current = false; return; }
+      correctRetryRef.current = true;
+      scrollToActive();
+      return;
+    }
+    correctRetryRef.current = false;
+    const c = el.getBoundingClientRect();
+    const r = node.getBoundingClientRect();
+    const desired = c.height / 2 - r.height / 2;
+    const delta = (r.top - c.top) - desired;
+    if (Math.abs(delta) < CORRECTION_MIN_PX) return; // ya centrado
+    const target = Math.max(0, el.scrollTop + delta);
+    if (Math.abs(el.scrollTop - target) <= PROGRAMMATIC_EPSILON) return;
+    armProgrammatic(target, true);
+    el.scrollTo({ top: target, behavior: 'smooth' });
+  }, [virtualize, scrollToActive, armProgrammatic]);
+
+  // ── Scroll manual vs programático (clasificación por posición destino) ────
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const top = el.scrollTop;
+    setScrollTop(top);
+    if (el.clientHeight !== viewportH) setViewportH(el.clientHeight);
+
+    if (programmaticTargetRef.current !== null) {
+      const target = programmaticTargetRef.current;
+      const dist = Math.abs(top - target);
+      if (dist <= PROGRAMMATIC_EPSILON) {
+        // Llegó: fin del scroll programático.
+        const wasCorrection = programmaticIsCorrectionRef.current;
+        clearProgrammatic();
+        // A12: si NO era ya una corrección, en virtualizado reajusta con el rect
+        // real (tras el commit del render → requestAnimationFrame).
+        if (!wasCorrection && virtualize) {
+          requestAnimationFrame(() => correctAfterProgrammatic());
+        }
+        return;
+      }
+      if (dist <= programmaticLastDistRef.current + PROGRAMMATIC_EPSILON) {
+        // Sigue acercándose (o meseta dentro de epsilon): es nuestro scroll en
+        // tránsito → no armar guard ni evaluar despegue.
+        programmaticLastDistRef.current = dist;
+        return;
+      }
+      // M13: la distancia AUMENTÓ → el usuario metió mano a media animación. Se
+      // respeta como scroll de usuario y se cancela el tracking programático.
+      clearProgrammatic();
+    }
+    // Scroll del usuario: arma el guard y evalúa si nos "despegó" de la lectura.
+    lastManualScrollRef.current = Date.now();
+    setDetached(!isActiveVisible());
+  }, [viewportH, isActiveVisible, virtualize, clearProgrammatic, correctAfterProgrammatic]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -116,7 +233,9 @@ export function ReaderView() {
     // Solo cuando cambia la POSICIÓN (avance/salto), no en cada palabra.
   }, [chapterIndex, paragraphIndex, detached, scrollToActive]);
 
-  // Botón temporal "volver a la lectura": re-engancha el seguimiento.
+  // Botón temporal "volver a la lectura": re-engancha el seguimiento. Con la
+  // corrección A12 (rect real en virtualizado), al completar el scroll la
+  // palabra activa queda visible → no vuelve a despegarse solo.
   const handleReturnToReading = useCallback(() => {
     setDetached(false);
     lastManualScrollRef.current = 0;
@@ -128,7 +247,7 @@ export function ReaderView() {
   // caben en pantalla la palabra del karaoke se salía de vista. Aquí el punto
   // de seguimiento es la PALABRA activa: cuando el resaltado sale de la banda
   // cómoda del viewport (25%–70%), se re-centra con scroll suave. Respeta el
-  // guard de scroll manual y el modo despegado.
+  // guard de scroll manual y hace no-op mientras `detached` (A13).
   const wordIndex = usePlaybackStore((s) => s.wordIndex);
   useEffect(() => {
     const el = scrollRef.current;
@@ -141,24 +260,46 @@ export function ReaderView() {
     const topBand = c.top + c.height * 0.25;
     const bottomBand = c.top + c.height * 0.7;
     if (r.top >= topBand && r.bottom <= bottomBand) return; // en banda: no tocar
-    programmaticUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS;
-    el.scrollTo({
-      top: el.scrollTop + (r.top - c.top) - c.height * 0.4,
-      behavior: 'smooth',
-    });
-  }, [wordIndex, detached]);
+    const target = Math.max(0, el.scrollTop + (r.top - c.top) - c.height * 0.4);
+    if (Math.abs(el.scrollTop - target) <= PROGRAMMATIC_EPSILON) return;
+    armProgrammatic(target, false);
+    el.scrollTo({ top: target, behavior: 'smooth' });
+  }, [wordIndex, detached, armProgrammatic]);
 
-  // Al cambiar de capítulo, reinicia el scroll al inicio y limpia el guard.
+  // ── Reset al cambiar de capítulo (M12) ────────────────────────────────────
+  // Distinguimos navegación EXPLÍCITA (drawer→seekToParagraph, Cap±→
+  // bumpGeneration: ambas bumpean generación junto con el capítulo) del
+  // AUTO-AVANCE gapless (cambia el capítulo SIN bumpear). Señal: ¿cambió la
+  // generación a la vez que el capítulo? Si es auto-avance y el usuario lee
+  // despegado, conserva su posición y el modo despegado (el pill sigue
+  // disponible para volver); en cualquier otro caso reinicia como siempre.
+  // Nota: la generación también bumpea por voz/velocidad SIN cambio de capítulo;
+  // esos disparos actualizan prevGenRef y retornan temprano (no tocan el scroll),
+  // de modo que un bump de voz NO se confunde con un auto-avance posterior.
   useEffect(() => {
     const el = scrollRef.current;
+    const chapterChanged = chapterIndex !== prevChapterRef.current;
+    const genChanged = generationId !== prevGenRef.current;
+    prevChapterRef.current = chapterIndex;
+    prevGenRef.current = generationId;
+    if (!chapterChanged) return; // solo cambió generación (voz/velocidad): no tocar
+    const explicit = genChanged;
+    if (!explicit && detached) return; // auto-avance despegado: no teletransportar
     if (el) {
-      programmaticUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_MS;
-      el.scrollTop = 0;
+      if (el.scrollTop !== 0) {
+        armProgrammatic(0, true);
+        el.scrollTop = 0;
+      }
       setScrollTop(0);
     }
     lastManualScrollRef.current = 0;
     setDetached(false);
-  }, [chapterIndex]);
+  }, [chapterIndex, generationId, detached, armProgrammatic]);
+
+  // Limpia el timeout de seguridad del tracking programático al desmontar.
+  useEffect(() => () => {
+    if (programmaticSafetyRef.current) clearTimeout(programmaticSafetyRef.current);
+  }, []);
 
   // ── Click en párrafo → posiciona ahí; reproduce solo si estaba sonando ───
   const handleParagraphClick = useCallback(
@@ -207,6 +348,10 @@ export function ReaderView() {
   // ── Regreso a la biblioteca ───────────────────────────────────────────────
   const closeReader = useCallback(() => {
     playerAgent.fullStop();
+    // A2: invalida cualquier carga TTS en vuelo. Sin este bump, un fetch que
+    // resuelve DESPUÉS de cerrar el libro pasaría los guards de generación y
+    // resucitaría audio (y avance de párrafos) en la Biblioteca.
+    usePlaybackStore.getState().bumpGeneration();
     usePlaybackStore.getState().stop();
     useDocumentStore.getState().unloadDocument();
   }, []);

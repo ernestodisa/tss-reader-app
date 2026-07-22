@@ -22,8 +22,13 @@ interface PlayerBarProps {
 
 export function PlayerBar({ doc }: PlayerBarProps) {
   const {
-    isPlaying, isBuffering, voiceId, speed, volume,
-    chapterIndex, paragraphIndex, generationId,
+    // voiceId/speed/paragraphIndex ya NO se leen del render: los handlers de
+    // navegación y de Media Session los toman de usePlaybackStore.getState() al
+    // momento del evento (M2/M3), evitando closures stale. generationId sí se
+    // mantiene por render: alimenta el efecto que resetea el contador de saltos
+    // (B1). chapterIndex se mantiene por la metadata de Media Session y el JSX.
+    isPlaying, isBuffering, volume,
+    chapterIndex, generationId,
     nextParagraph, prevParagraph, nextChapter, prevChapter,
     setVolume, setBuffering, setParagraphTiming,
   } = usePlayback();
@@ -46,6 +51,15 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   const consecutiveSkipsRef = useRef(0);
   const MAX_CONSECUTIVE_SKIPS = 3;
 
+  // B1: cualquier cambio de generación arranca un tramo nuevo → se reinicia el
+  // contador de saltos consecutivos. Cubre el cambio de voz/velocidad (bumpea
+  // generación desde el store, fuera de estos handlers) y el seek; la
+  // navegación de usuario además lo resetea síncronamente en su handler. Sin
+  // esto, tras 3 saltos previos cada ▶ sobre un tramo malo pausaba en seco.
+  useEffect(() => {
+    consecutiveSkipsRef.current = 0;
+  }, [generationId]);
+
   const skipToNextAfterError = (gen: number) => {
     if (usePlaybackStore.getState().generationId !== gen) return;
     if (consecutiveSkipsRef.current >= MAX_CONSECUTIVE_SKIPS) {
@@ -63,7 +77,12 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     }
     const chapter = doc.chapters[after.chapterIndex];
     const paragraph = chapter?.paragraphs[after.paragraphIndex];
-    if (paragraph) void loadAndPlayParagraph(paragraph, voiceId, speed, after.generationId);
+    // M2: voz/velocidad del STORE (`after`), no del closure de render.
+    // skipToNextAfterError se invoca desde los callbacks registrados en el efecto
+    // [doc], que capturan los valores de render del PRIMER montaje; usar
+    // voiceId/speed de render haría que el libro siguiera indefinidamente con la
+    // voz/velocidad viejas bajo una generación válida (nada lo corregiría jamás).
+    if (paragraph) void loadAndPlayParagraph(paragraph, after.voiceId, after.speed, after.generationId);
   };
 
   // ── Reproducción PROGRESIVA por chunk (≈1-2 oraciones) ──────────────────
@@ -78,6 +97,13 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     chunks: TTSChunk[];
     nextIndex: number;
     wordOffset: number; // palabras acumuladas de chunks ya reproducidos
+    // A3: token por-invocación de queueUpcoming. Los guards gen/identidad no
+    // distinguen DOS queueUpcoming vivos sobre la MISMA chain (p.ej. el
+    // re-fetch del endCallback carreando contra un pre-encolado en vuelo).
+    // playChunkFromChain lo incrementa en cada reproducción MANUAL (camino que
+    // NO es el pre-encolado); queueUpcoming captura el valor al arrancar y
+    // aborta si cambió antes de encolar.
+    queueEpoch: number;
   }
   const chainRef = useRef<ChunkChain | null>(null);
 
@@ -131,6 +157,11 @@ export function PlayerBar({ doc }: PlayerBarProps) {
 
     consecutiveSkipsRef.current = 0;
     chain.nextIndex += 1;
+    // A3: reproducción MANUAL de un chunk (distinta del swap pre-encolado) →
+    // avanza el epoch. Un queueUpcoming lanzado antes de este punto capturó un
+    // epoch menor y abortará en su gate post-await, sin encolar un chunk ya
+    // superado (evita el duplicado/saltado con karaoke corrido).
+    chain.queueEpoch += 1;
     playerAgent.load(chain.paragraph.id, [ttsResult.data.audio], ttsResult.data.words, ttsResult.data.durationMs);
     setParagraphTiming(chain.paragraph.id, { status: 'ready', timings: ttsResult.data.words });
     playerAgent.play();
@@ -160,51 +191,80 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   // paragraphAdvance (el player ya está sonando su primer chunk).
   const pendingNextChainRef = useRef<ChunkChain | null>(null);
 
+  // A5: contador de fetches de pre-encolado EN VUELO. Puede haber varios
+  // solapados (el re-fetch del endCallback carreando contra un pre-encolado),
+  // así que se usa un contador y no un booleano: el motor MSE debe seguir
+  // "esperando más" mientras CUALQUIER fetch siga vivo. Al motor le llega
+  // `count > 0`; el clásico lo ignora (no-op). El try/finally garantiza el
+  // decremento aun si el fetch aborta por generación/epoch obsoletos.
+  const expectingMoreRef = useRef(0);
+  const markExpecting = (delta: number) => {
+    expectingMoreRef.current = Math.max(0, expectingMoreRef.current + delta);
+    playerAgent.setExpectingMore(expectingMoreRef.current > 0);
+  };
+
   const queueUpcoming = async (chain: ChunkChain): Promise<void> => {
+    // A3: epoch de la cadena al arrancar. Si otro camino MANUAL
+    // (playChunkFromChain vía endCallback) avanza la cadena mientras este fetch
+    // está en vuelo, el epoch cambia y este queueUpcoming aborta sin encolar.
+    const epoch = chain.queueEpoch;
     pendingNextChainRef.current = null;
-    const upcoming = chain.chunks[chain.nextIndex];
-    if (upcoming) {
-      const r = await fetchTTS(upcoming);
-      if (r.success && usePlaybackStore.getState().generationId === chain.gen && chainRef.current === chain) {
-        playerAgent.queueNext([r.data.audio], r.data.words, {
-          paragraphId: chain.paragraph.id,
-          paragraphAdvance: false,
-        }, r.data.durationMs);
+    // A5: desde aquí y hasta que TODOS los fetches de esta invocación aterricen
+    // hay "más por venir" → un underrun no debe leerse como fin de stream.
+    markExpecting(1);
+    try {
+      const upcoming = chain.chunks[chain.nextIndex];
+      if (upcoming) {
+        const r = await fetchTTS(upcoming);
+        if (r.success && usePlaybackStore.getState().generationId === chain.gen && chainRef.current === chain && chain.queueEpoch === epoch) {
+          playerAgent.queueNext([r.data.audio], r.data.words, {
+            paragraphId: chain.paragraph.id,
+            paragraphAdvance: false,
+          }, r.data.durationMs);
+        }
+        return;
       }
-      return;
+      // Último chunk del párrafo sonando: pre-genera los párrafos siguientes en
+      // cache y deja ENCOLADO el primer chunk del párrafo que sigue, con su
+      // cadena lista para el auto-avance.
+      prefetchNext(doc).catch(() => { /* best-effort */ });
+      const store = usePlaybackStore.getState();
+      const next = nextPosition(store.chapterIndex, store.paragraphIndex);
+      if (!next) return;
+      const paragraph = doc.chapters[next.chapter]?.paragraphs[next.paragraph];
+      if (!paragraph) return;
+      const chunkResult = chunkParagraph({
+        paragraphId: paragraph.id,
+        paragraphText: paragraph.text,
+        voiceId: store.voiceId,
+        speed: store.speed,
+        maxChunkChars: 250,
+        strategy: 'sentence',
+      });
+      if (!chunkResult.success || chunkResult.data.chunks.length === 0) return;
+      const r = await fetchTTS(chunkResult.data.chunks[0]);
+      if (!r.success) return;
+      if (usePlaybackStore.getState().generationId !== chain.gen || chainRef.current !== chain || chain.queueEpoch !== epoch) return;
+      pendingNextChainRef.current = {
+        gen: chain.gen,
+        paragraph,
+        chunks: chunkResult.data.chunks,
+        nextIndex: 1,
+        wordOffset: 0,
+        // Cadena gapless nueva: su propio epoch arranca en 0 y avanza solo cuando
+        // ESTA chain reproduzca manualmente (coherente con SU chain, A3).
+        queueEpoch: 0,
+      };
+      playerAgent.queueNext([r.data.audio], r.data.words, {
+        paragraphId: paragraph.id,
+        paragraphAdvance: true,
+      }, r.data.durationMs);
+    } finally {
+      // A5: el fetch aterrizó (encoló, abortó por gen/epoch, o falló) → un
+      // "expecting" menos. Al llegar a 0 el motor vuelve a poder detectar el
+      // fin real del stream.
+      markExpecting(-1);
     }
-    // Último chunk del párrafo sonando: pre-genera los párrafos siguientes en
-    // cache y deja ENCOLADO el primer chunk del párrafo que sigue, con su
-    // cadena lista para el auto-avance.
-    prefetchNext(doc).catch(() => { /* best-effort */ });
-    const store = usePlaybackStore.getState();
-    const next = nextPosition(store.chapterIndex, store.paragraphIndex);
-    if (!next) return;
-    const paragraph = doc.chapters[next.chapter]?.paragraphs[next.paragraph];
-    if (!paragraph) return;
-    const chunkResult = chunkParagraph({
-      paragraphId: paragraph.id,
-      paragraphText: paragraph.text,
-      voiceId: store.voiceId,
-      speed: store.speed,
-      maxChunkChars: 250,
-      strategy: 'sentence',
-    });
-    if (!chunkResult.success || chunkResult.data.chunks.length === 0) return;
-    const r = await fetchTTS(chunkResult.data.chunks[0]);
-    if (!r.success) return;
-    if (usePlaybackStore.getState().generationId !== chain.gen || chainRef.current !== chain) return;
-    pendingNextChainRef.current = {
-      gen: chain.gen,
-      paragraph,
-      chunks: chunkResult.data.chunks,
-      nextIndex: 1,
-      wordOffset: 0,
-    };
-    playerAgent.queueNext([r.data.audio], r.data.words, {
-      paragraphId: paragraph.id,
-      paragraphAdvance: true,
-    }, r.data.durationMs);
   };
 
   // Load and play current paragraph (arma la cadena de chunks y arranca).
@@ -241,13 +301,18 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       chunks: chunkResult.data.chunks,
       nextIndex: 0,
       wordOffset: 0,
+      queueEpoch: 0,
     };
     await playChunkFromChain();
   };
 
   // Handle play/pause toggle
   const handlePlayPause = async () => {
-    if (isPlaying) {
+    // M3: se lee isPlaying del store (no del closure de render) para que el
+    // camino desde la Media Session distinga play de pause con el estado vigente,
+    // sin depender de que el efecto se haya re-registrado. En el onClick del JSX
+    // el valor de render coincide con getState(), así que no cambia nada.
+    if (usePlaybackStore.getState().isPlaying) {
       playerAgent.pause();
       usePlaybackStore.getState().pause();
       return;
@@ -255,77 +320,131 @@ export function PlayerBar({ doc }: PlayerBarProps) {
 
     // If player already has audio loaded, just resume (not play — sourceNode already started)
     if (playerAgent.getCurrentPositionMs() > 0) {
-      playerAgent.resume();
-      usePlaybackStore.getState().play();
+      const st = usePlaybackStore.getState();
+      const chain = chainRef.current;
+      // M4: solo se reanuda si el audio cargado pertenece a la generación
+      // VIGENTE. Si se cambió voz/velocidad estando en pausa, reanudar sonaría
+      // la voz vieja hasta la frontera del chunk → en su lugar se RECARGA el
+      // párrafo actual con la voz/velocidad del STORE (no del closure, que
+      // puede estar stale). La generación ya es la nueva; no se re-bumpea.
+      if (chain && chain.gen === st.generationId) {
+        playerAgent.resume();
+        st.play();
+        return;
+      }
+      playerAgent.fullStop();
+      const chapter = doc.chapters[st.chapterIndex];
+      const paragraph = chapter?.paragraphs[st.paragraphIndex];
+      if (paragraph) {
+        await loadAndPlayParagraph(paragraph, st.voiceId, st.speed, st.generationId);
+      }
       return;
     }
 
-    // Otherwise, load current paragraph
-    const chapter = doc.chapters[chapterIndex];
-    const paragraph = chapter?.paragraphs[paragraphIndex];
+    // Otherwise, load current paragraph. M3: posición/voz/velocidad/generación se
+    // leen del store (no del closure de render) para que el ▶ desde la Media
+    // Session tras cambiar la voz en pausa cargue la generación VIGENTE — de otro
+    // modo se dispararía loadAndPlayParagraph con una generación ya superada y su
+    // guard lo mataría de inmediato (play "muerto" en la pantalla de bloqueo).
+    const st = usePlaybackStore.getState();
+    const chapter = doc.chapters[st.chapterIndex];
+    const paragraph = chapter?.paragraphs[st.paragraphIndex];
     if (paragraph) {
-      await loadAndPlayParagraph(paragraph, voiceId, speed, generationId);
+      await loadAndPlayParagraph(paragraph, st.voiceId, st.speed, st.generationId);
     }
   };
 
+  // A1/B1: la navegación INICIADA POR EL USUARIO (⏭/⏮/Cap±, y sus equivalentes
+  // de Media Session que comparten estas funciones) invalida toda continuación
+  // vieja: bumpGeneration() tras el fullStop() y ANTES de leer generationId para
+  // la nueva carga → cualquier fetch/queueUpcoming en vuelo muere en sus guards
+  // de generación. Reset del contador de saltos consecutivos: es un tramo nuevo.
   const handleNext = () => {
     playerAgent.fullStop();
+    usePlaybackStore.getState().bumpGeneration();
+    consecutiveSkipsRef.current = 0;
     nextParagraph(doc);
     // Kick off prefetch immediately for the new position
     prefetchNext(doc).catch(() => {});
-    // Auto-play next paragraph
-    const chapter = doc.chapters[usePlaybackStore.getState().chapterIndex];
-    const paragraph = chapter?.paragraphs[usePlaybackStore.getState().paragraphIndex];
+    // Auto-play next paragraph. M3: voz/velocidad/generación del store (no del
+    // closure de render) para que este handler sea seguro también invocado desde
+    // la Media Session, cuyo efecto NO se re-registra al cambiar voz/velocidad. En
+    // el onClick del JSX render === getState(), así que no cambia el comportamiento.
+    const state = usePlaybackStore.getState();
+    const chapter = doc.chapters[state.chapterIndex];
+    const paragraph = chapter?.paragraphs[state.paragraphIndex];
     if (paragraph) {
-      loadAndPlayParagraph(paragraph, voiceId, speed, usePlaybackStore.getState().generationId);
+      loadAndPlayParagraph(paragraph, state.voiceId, state.speed, state.generationId);
     }
   };
 
   const handlePrev = () => {
     playerAgent.fullStop();
+    usePlaybackStore.getState().bumpGeneration();
+    consecutiveSkipsRef.current = 0;
     prevParagraph(doc);
     // Kick off prefetch immediately for the new position
     prefetchNext(doc).catch(() => {});
-    const chapter = doc.chapters[usePlaybackStore.getState().chapterIndex];
-    const paragraph = chapter?.paragraphs[usePlaybackStore.getState().paragraphIndex];
+    // M3: voz/velocidad/generación del store (ver handleNext) — seguro desde la
+    // Media Session.
+    const state = usePlaybackStore.getState();
+    const chapter = doc.chapters[state.chapterIndex];
+    const paragraph = chapter?.paragraphs[state.paragraphIndex];
     if (paragraph) {
-      loadAndPlayParagraph(paragraph, voiceId, speed, usePlaybackStore.getState().generationId);
+      loadAndPlayParagraph(paragraph, state.voiceId, state.speed, state.generationId);
     }
   };
 
   // Salto de capítulo: mismo patrón que handleNext/handlePrev (fullStop +
-  // navegación en el store + auto-play del párrafo 0 del capítulo destino).
+  // bump de generación + navegación en el store + auto-play del párrafo 0 del
+  // capítulo destino).
   const handleNextChapter = () => {
     playerAgent.fullStop();
+    usePlaybackStore.getState().bumpGeneration();
+    consecutiveSkipsRef.current = 0;
     nextChapter(doc);
     prefetchNext(doc).catch(() => {});
     const state = usePlaybackStore.getState();
     const chapter = doc.chapters[state.chapterIndex];
     const paragraph = chapter?.paragraphs[state.paragraphIndex];
+    // M3: voz/velocidad del store (no del closure de render) — seguro desde la
+    // Media Session (seekbackward/seekforward).
     if (paragraph) {
-      loadAndPlayParagraph(paragraph, voiceId, speed, state.generationId);
+      loadAndPlayParagraph(paragraph, state.voiceId, state.speed, state.generationId);
     }
   };
 
   const handlePrevChapter = () => {
     playerAgent.fullStop();
+    usePlaybackStore.getState().bumpGeneration();
+    consecutiveSkipsRef.current = 0;
     prevChapter(doc);
     prefetchNext(doc).catch(() => {});
     const state = usePlaybackStore.getState();
     const chapter = doc.chapters[state.chapterIndex];
     const paragraph = chapter?.paragraphs[state.paragraphIndex];
+    // M3: voz/velocidad del store (no del closure de render) — seguro desde la
+    // Media Session (seekbackward/seekforward).
     if (paragraph) {
-      loadAndPlayParagraph(paragraph, voiceId, speed, state.generationId);
+      loadAndPlayParagraph(paragraph, state.voiceId, state.speed, state.generationId);
     }
   };
 
   // MEDIA SESSION: refleja metadata + estado y enruta los controles del SO
   // (pantalla de bloqueo / centro de control) a los handlers de la app. Se
-  // re-registra al cambiar de párrafo/capítulo/estado para mantener la metadata
-  // y el playbackState al día. El handler `play` pasa por handlePlayPause, cuyo
-  // camino de resume() reanuda el AudioContext suspendido en background.
+  // re-registra solo cuando cambia algo que la metadata/playbackState MUESTRAN
+  // (doc → título/autor, chapterIndex → capítulo, isPlaying → estado). NO depende
+  // de paragraphIndex: los handlers son stateless (leen todo vía getState al
+  // momento del evento, M3), así que re-registrarlos en cada avance de párrafo
+  // sería ruido. El handler `play` pasa por handlePlayPause, cuyo camino de
+  // resume() reanuda el AudioContext suspendido en background.
   useEffect(() => {
     const chapter = doc.chapters[chapterIndex];
+    // M3: la pantalla de bloqueo debe comportarse como los botones en pantalla,
+    // que se deshabilitan durante el buffering. Navegar en pleno buffering
+    // dispararía los dobles-arranques (A1), así que next/prev/capítulo hacen no-op
+    // si isBuffering está activo en el store al momento del evento.
+    const notBuffering = () => !usePlaybackStore.getState().isBuffering;
     setupMediaSession({
       title: doc.title,
       author: doc.author,
@@ -338,13 +457,13 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         pause: () => {
           if (usePlaybackStore.getState().isPlaying) handlePlayPause();
         },
-        next: handleNext,
-        prev: handlePrev,
-        nextChapter: handleNextChapter,
-        prevChapter: handlePrevChapter,
+        next: () => { if (notBuffering()) handleNext(); },
+        prev: () => { if (notBuffering()) handlePrev(); },
+        nextChapter: () => { if (notBuffering()) handleNextChapter(); },
+        prevChapter: () => { if (notBuffering()) handlePrevChapter(); },
       },
     });
-  }, [doc, isPlaying, chapterIndex, paragraphIndex]);
+  }, [doc, isPlaying, chapterIndex]);
 
   // Limpia la Media Session al desmontar el PlayerBar.
   useEffect(() => {
@@ -378,6 +497,8 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       // Sin esto, el audio sigue en el párrafo siguiente mientras el store (y
       // el karaoke) se quedan clavados en el recién terminado. Se corta al
       // huérfano y se re-arranca la posición correcta con los ajustes nuevos.
+      // GEMELO de la rama de avance stale del endCallback (M1): ambos re-arrancan
+      // el párrafo vigente con la voz/velocidad/generación del store.
       if (!staleChain || store.generationId !== staleChain.gen) {
         pendingNextChainRef.current = null;
         playerAgent.fullStop();
@@ -440,6 +561,23 @@ export function PlayerBar({ doc }: PlayerBarProps) {
           chain.wordOffset += played.text.split(/\s+/).filter(Boolean).length;
         }
         void playChunkFromChain();
+        return;
+      }
+      // M1: llegamos a la rama de AVANCE. El caso legítimo (fin de párrafo sin
+      // pre-encolado, avance normal) llega aquí con la MISMA generación de la
+      // cadena. Pero si `chain` existe y su generación ya NO es la vigente, hubo
+      // un cambio de voz/velocidad a media párrafo y el pre-encolado gapless no
+      // alcanzó a entrar antes del bump: avanzar de párrafo aquí SALTARÍA los
+      // chunks restantes con la voz nueva. En su lugar se RE-ARRANCA el párrafo
+      // ACTUAL del store con la voz/velocidad/generación nuevas — exactamente el
+      // mismo comportamiento que el camino GEMELO del chunkStart stale (arriba,
+      // rama `!staleChain || store.generationId !== staleChain.gen`). Ambos
+      // caminos gemelos convergen aquí en el mismo re-arranque.
+      if (chain && usePlaybackStore.getState().generationId !== chain.gen) {
+        playerAgent.fullStop();
+        const s2 = usePlaybackStore.getState();
+        const paragraph = doc.chapters[s2.chapterIndex]?.paragraphs[s2.paragraphIndex];
+        if (paragraph) void loadAndPlayParagraph(paragraph, s2.voiceId, s2.speed, s2.generationId);
         return;
       }
       const store = usePlaybackStore.getState();

@@ -94,8 +94,20 @@ export const usePlaybackStore = create<PlaybackStore>()(
     generationId: s.generationId + 1,
   })),
 
+  // IMPORTANTE — estas 4 acciones (nextParagraph/prevParagraph/nextChapter/
+  // prevChapter) NO bumpean generación A PROPÓSITO. El avance AUTOMÁTICO gapless
+  // (la rama de avance del endCallback y el chunk que ya viene PRE-ENCOLADO en
+  // el player) depende de CONSERVAR la generación: bumpear aquí invalidaría en
+  // sus guards el chunk pre-encolado en vuelo y cortaría la continuidad del
+  // audio. La navegación INICIADA POR EL USUARIO sí debe invalidar lo viejo,
+  // pero lo hace en PlayerBar (bumpGeneration tras el fullStop), no aquí. NO
+  // mover el bump a estas acciones "para arreglar carreras": rompe el gapless.
   nextParagraph: (doc: ExtractedDoc) => set((s) => {
     const chapter = doc.chapters[s.chapterIndex];
+    // B2: con índices restaurados de un libro re-extraído con menos capítulos,
+    // s.chapterIndex puede quedar fuera de rango → sin este guard,
+    // chapter.paragraphs lanza TypeError en el set del store.
+    if (!chapter) return {};
     if (s.paragraphIndex < chapter.paragraphs.length - 1) {
       return { paragraphIndex: s.paragraphIndex + 1, wordIndex: 0, positionMs: 0 };
     }
@@ -117,6 +129,9 @@ export const usePlaybackStore = create<PlaybackStore>()(
     }
     if (s.chapterIndex > 0) {
       const prevChapter = doc.chapters[s.chapterIndex - 1];
+      // B2: índice fuera de rango (libro re-extraído) → guard contra TypeError
+      // en prevChapter.paragraphs.
+      if (!prevChapter) return {};
       return {
         chapterIndex: s.chapterIndex - 1,
         paragraphIndex: prevChapter.paragraphs.length - 1,

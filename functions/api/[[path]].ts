@@ -78,7 +78,11 @@ async function verifyAccessJwt(token: string, teamDomain: string, aud: string): 
   if (!ok) throw new Error('Firma del JWT inválida');
 
   const now = Math.floor(Date.now() / 1000);
-  if (payload.exp && payload.exp < now) throw new Error('JWT expirado');
+  // B10 — fail-closed: exigimos `exp`. Access SIEMPRE lo emite; un token sin
+  // `exp` (o expirado) se rechaza en vez de aceptarse por omisión.
+  if (typeof payload.exp !== 'number' || payload.exp < now) {
+    throw new Error('JWT sin exp o expirado');
+  }
   if (payload.iss !== `https://${teamDomain}`) throw new Error('iss inesperado');
   const audList = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
   if (!audList.includes(aud)) throw new Error('aud inesperado');

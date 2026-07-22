@@ -13,9 +13,16 @@ import { initAutoSync } from './lib/auto-sync';
 import { idbCacheStore } from './lib/indexeddb-cache';
 import { docsStore } from './lib/library-docs';
 
-// Migra IndexedDB (cache TTS + contenidos de libros) al namespace nuevo antes
-// de arrancar nada que los lea. Una sola vez; sin datos viejos es un no-op.
-await migrateIdbToFolio(idbCacheStore, docsStore);
+// Migra IndexedDB (cache TTS + contenidos de libros) al namespace nuevo. NO
+// bloquea el primer render (M14): corre EN PARALELO y los dos puntos de lectura
+// inicial de IDB (library-docs.loadDoc y IndexedDBCache.get) esperan
+// `migrationReady` antes de leer, para no ver un libro "sin contenido" durante
+// la copia. Un timeout de seguridad (dentro de migrationReady) evita que un
+// indexedDB.open colgado (Safari) deje la app muerta. Una sola vez; sin datos
+// viejos es un no-op casi instantáneo.
+migrateIdbToFolio(idbCacheStore, docsStore).catch((e) =>
+  console.error('[rebrand-migration] migración IDB falló:', e),
+);
 
 // Arranca la sincronización automática por identidad (Access). Es idempotente y
 // silenciosa: si no hay sesión o red, la app sigue funcionando offline.

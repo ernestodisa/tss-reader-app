@@ -81,3 +81,13 @@ export function IconSpinner({ size }: IconProps) {
     </svg>
   );
 }
+
+/** Equis de cerrar (evita el × Unicode, emoji en iOS). */
+export function IconClose({ size }: IconProps) {
+  return (
+    <svg {...base(size)}>
+      <path d="M6 6l12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
+  );
+}
