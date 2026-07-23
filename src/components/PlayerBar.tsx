@@ -268,7 +268,12 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   };
 
   // Load and play current paragraph (arma la cadena de chunks y arranca).
-  const loadAndPlayParagraph = async (paragraph: Paragraph, voiceId: string, speed: number, gen: number) => {
+  // startChunk: chunk desde el que continuar (default 0 = párrafo completo).
+  // El chunker corta por TEXTO (voz/velocidad solo viajan en la llave de cache),
+  // así que los índices de chunk son estables entre generaciones — un cambio de
+  // voz/velocidad puede retomar en el MISMO chunk donde iba, sin re-leer al
+  // usuario el párrafo desde cero.
+  const loadAndPlayParagraph = async (paragraph: Paragraph, voiceId: string, speed: number, gen: number, startChunk = 0) => {
     setBuffering(true);
     setParagraphTiming(paragraph.id, { status: 'fetching' });
 
@@ -295,12 +300,19 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       return;
     }
 
+    const chunks = chunkResult.data.chunks;
+    // Continuación a media cadena: clamp defensivo y acumulado de palabras de
+    // los chunks saltados para que el karaoke arranque alineado.
+    const start = Math.max(0, Math.min(startChunk, chunks.length - 1));
+    const wordOffset = chunks
+      .slice(0, start)
+      .reduce((n, c) => n + c.text.split(/\s+/).filter(Boolean).length, 0);
     chainRef.current = {
       gen,
       paragraph,
-      chunks: chunkResult.data.chunks,
-      nextIndex: 0,
-      wordOffset: 0,
+      chunks,
+      nextIndex: start,
+      wordOffset,
       queueEpoch: 0,
     };
     await playChunkFromChain();
@@ -336,7 +348,14 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       const chapter = doc.chapters[st.chapterIndex];
       const paragraph = chapter?.paragraphs[st.paragraphIndex];
       if (paragraph) {
-        await loadAndPlayParagraph(paragraph, st.voiceId, st.speed, st.generationId);
+        // Continuar en el chunk que estaba sonando al pausar (nextIndex apunta
+        // al siguiente por encolar → el actual es nextIndex-1). Solo si la
+        // cadena vieja es de ESTE párrafo: un seek por click en pausa también
+        // bumpea generación y ahí el offset de chunk no aplica (arranca en 0).
+        const startChunk = chain && chain.paragraph.id === paragraph.id
+          ? Math.max(0, chain.nextIndex - 1)
+          : 0;
+        await loadAndPlayParagraph(paragraph, st.voiceId, st.speed, st.generationId, startChunk);
       }
       return;
     }
@@ -496,18 +515,25 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       // chunk que acaba de empezar a sonar es HUÉRFANO de la generación vieja.
       // Sin esto, el audio sigue en el párrafo siguiente mientras el store (y
       // el karaoke) se quedan clavados en el recién terminado. Se corta al
-      // huérfano y se re-arranca la posición correcta con los ajustes nuevos.
-      // GEMELO de la rama de avance stale del endCallback (M1): ambos re-arrancan
-      // el párrafo vigente con la voz/velocidad/generación del store.
+      // huérfano y se retoma la MISMA posición con los ajustes nuevos: el chunk
+      // huérfano apenas sonó (milisegundos), así que re-arrancar ESE chunk es
+      // imperceptible — pero re-arrancar el párrafo desde cero re-leía al
+      // usuario todo lo ya escuchado (bug de campo 2026-07-22). GEMELO de la
+      // rama stale del endCallback (M1): ambos continúan, nunca retroceden.
       if (!staleChain || store.generationId !== staleChain.gen) {
         pendingNextChainRef.current = null;
         playerAgent.fullStop();
         if (meta.paragraphAdvance) {
+          // Cruce de párrafo: el huérfano era el chunk 0 del párrafo NUEVO →
+          // retomar ahí mismo (avanzar el store y cargar desde el inicio).
           store.nextParagraph(useDocumentStore.getState().doc || doc);
         }
         const s2 = usePlaybackStore.getState();
+        // Mismo párrafo: el huérfano era chunks[nextIndex] de la cadena vigente
+        // → continuar exactamente en ese chunk.
+        const startChunk = !meta.paragraphAdvance && staleChain ? staleChain.nextIndex : 0;
         const paragraph = doc.chapters[s2.chapterIndex]?.paragraphs[s2.paragraphIndex];
-        if (paragraph) void loadAndPlayParagraph(paragraph, s2.voiceId, s2.speed, s2.generationId);
+        if (paragraph) void loadAndPlayParagraph(paragraph, s2.voiceId, s2.speed, s2.generationId, startChunk);
         return;
       }
 
@@ -565,19 +591,26 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       }
       // M1: llegamos a la rama de AVANCE. El caso legítimo (fin de párrafo sin
       // pre-encolado, avance normal) llega aquí con la MISMA generación de la
-      // cadena. Pero si `chain` existe y su generación ya NO es la vigente, hubo
-      // un cambio de voz/velocidad a media párrafo y el pre-encolado gapless no
-      // alcanzó a entrar antes del bump: avanzar de párrafo aquí SALTARÍA los
-      // chunks restantes con la voz nueva. En su lugar se RE-ARRANCA el párrafo
-      // ACTUAL del store con la voz/velocidad/generación nuevas — exactamente el
-      // mismo comportamiento que el camino GEMELO del chunkStart stale (arriba,
-      // rama `!staleChain || store.generationId !== staleChain.gen`). Ambos
-      // caminos gemelos convergen aquí en el mismo re-arranque.
-      if (chain && usePlaybackStore.getState().generationId !== chain.gen) {
+      // cadena. Si la generación ya NO es la vigente (cambio de voz/velocidad a
+      // media párrafo, sin pre-encolado que interceptar), hay dos casos:
+      //
+      // a) Al párrafo le QUEDAN chunks → continuar el MISMO párrafo desde el
+      //    chunk pendiente (chain.nextIndex) con los ajustes nuevos. Los índices
+      //    de chunk son estables entre velocidades (el chunker corta por texto),
+      //    así que NO se re-lee nada de lo ya escuchado.
+      // b) El párrafo ya TERMINÓ (nextIndex agotado) → caer a la rama de avance
+      //    normal de abajo, que ya usa voz/velocidad/generación frescas del
+      //    store. Re-arrancar aquí el "párrafo actual" repetía completo el
+      //    párrafo recién escuchado con la velocidad nueva (bug de campo
+      //    2026-07-22): cambiar velocidad NUNCA debe retroceder al usuario.
+      //
+      // chain.paragraph (no los índices del store) porque un bump sin navegación
+      // solo viene de voz/velocidad: el párrafo vigente ES el de la cadena.
+      if (chain && usePlaybackStore.getState().generationId !== chain.gen &&
+          chain.nextIndex < chain.chunks.length) {
         playerAgent.fullStop();
         const s2 = usePlaybackStore.getState();
-        const paragraph = doc.chapters[s2.chapterIndex]?.paragraphs[s2.paragraphIndex];
-        if (paragraph) void loadAndPlayParagraph(paragraph, s2.voiceId, s2.speed, s2.generationId);
+        void loadAndPlayParagraph(chain.paragraph, s2.voiceId, s2.speed, s2.generationId, chain.nextIndex);
         return;
       }
       const store = usePlaybackStore.getState();
