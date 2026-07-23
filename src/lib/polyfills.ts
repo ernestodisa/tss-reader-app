@@ -71,4 +71,38 @@ if (
   (ReadableStream.prototype as any)[Symbol.asyncIterator] = (ReadableStream.prototype as any).values;
 }
 
+// pdfjs-dist 6.1.200 usa Map.prototype.getOrInsertComputed (propuesta TC39
+// "upsert", solo Safari 26+/Chrome muy reciente) SIN feature-detect — p.ej.
+// `this._intentStates.getOrInsertComputed(...)` y en getMetadata. En iOS 18.x
+// la importación de CUALQUIER PDF muere con "getOrInsertComputed is not a
+// function" (visto en campo en iOS 18.7.9, 2026-07-22). Se polyfillean las dos
+// variantes de la propuesta en Map y WeakMap.
+for (const ctor of [Map, WeakMap] as any[]) {
+  const proto = ctor.prototype;
+  if (typeof proto.getOrInsert !== 'function') {
+    proto.getOrInsert = function (key: unknown, defaultValue: unknown) {
+      if (this.has(key)) return this.get(key);
+      this.set(key, defaultValue);
+      return defaultValue;
+    };
+  }
+  if (typeof proto.getOrInsertComputed !== 'function') {
+    proto.getOrInsertComputed = function (key: unknown, callback: (k: unknown) => unknown) {
+      if (this.has(key)) return this.get(key);
+      const value = callback(key);
+      this.set(key, value);
+      return value;
+    };
+  }
+}
+
+// pdfjs-dist v6 también llama Promise.try (Safari/iOS 18.2+) sin guard. El
+// iPhone de campo (18.7.9) sí lo trae, pero iOS 17.x-18.1 no — mismo destino
+// que withResolvers, así que se cubre de una vez.
+if (typeof (Promise as any).try !== 'function') {
+  (Promise as any).try = function tryFn(fn: (...a: unknown[]) => unknown, ...args: unknown[]) {
+    return new Promise((resolve) => resolve(fn(...args)));
+  };
+}
+
 export {};
