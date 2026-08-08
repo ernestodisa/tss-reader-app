@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDocument } from '../hooks/useDocument';
-import { usePlayback } from '../hooks/usePlayback';
 import { usePlaybackStore } from '../store/playback-store';
 import { useDocumentStore } from '../store/document-store';
 import { useLibraryStore } from '../store/library-store';
@@ -32,7 +31,11 @@ const CORRECTION_MIN_PX = 24; // px: recentrado post-scroll solo si está más d
 
 export function ReaderView() {
   const { doc } = useDocument();
-  const { chapterIndex, paragraphIndex } = usePlayback();
+  // C: selectores específicos (no usePlayback() sin selector — ese re-renderiza
+  // ReaderView 60fps durante playback por cada setWordIndex, saturando el main
+  // thread y retrasando handleScroll/el seguimiento fino).
+  const chapterIndex = usePlaybackStore((s) => s.chapterIndex);
+  const paragraphIndex = usePlaybackStore((s) => s.paragraphIndex);
   const bookId = useDocumentStore((s) => s.currentBookId);
   const [showChapters, setShowChapters] = useState(false);
   const showAnnotations = useDocumentStore((s) => s.showAnnotations);
@@ -50,6 +53,9 @@ export function ReaderView() {
   const programmaticIsCorrectionRef = useRef(false);
   const programmaticSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const correctRetryRef = useRef(false);
+  // B: marca de cuándo el último scroll programático ATERRIZÓ, para ignorar los
+  // 1-2 eventos de scroll residuales del settle del smooth (que no son del usuario).
+  const programmaticJustClearedRef = useRef(0);
   // M12: distinguir navegación EXPLÍCITA de capítulo (bumpea generación) del
   // AUTO-AVANCE gapless (no la bumpea), sin estado global nuevo — comparando la
   // generación actual contra la vista en el último cambio de capítulo.
@@ -76,8 +82,14 @@ export function ReaderView() {
     let e = Math.ceil((scrollTop + h) / EST_PARAGRAPH_HEIGHT) + OVERSCAN;
     s = Math.max(0, s);
     e = Math.min(total, e);
+    // A: garantizar que el párrafo ACTIVO siempre esté renderizado, incluso si su
+    // altura real >> EST_PARAGRAPH_HEIGHT (párrafo largo que desborda la ventana
+    // estimada por 90px/párrafo). Sin esto, el seguimiento fino desmonta el párrafo
+    // al hacer scroll dentro de él, desaparece .kw-current y se pierde el karaoke.
+    s = Math.min(s, paragraphIndex);
+    e = Math.max(e, paragraphIndex + 1);
     return [s, e];
-  }, [virtualize, scrollTop, viewportH, total]);
+  }, [virtualize, scrollTop, viewportH, total, paragraphIndex]);
 
   // ── Scroll programático: armado / limpieza del tracking ──────────────────
   const clearProgrammatic = useCallback(() => {
@@ -210,6 +222,9 @@ export function ReaderView() {
         // Llegó: fin del scroll programático.
         const wasCorrection = programmaticIsCorrectionRef.current;
         clearProgrammatic();
+        // B: marca el instante del aterrizaje para que los eventos residuales
+        // del settle del smooth no se confundan con scroll del usuario.
+        programmaticJustClearedRef.current = Date.now();
         // A12: si NO era ya una corrección, en virtualizado reajusta con el rect
         // real (tras el commit del render → requestAnimationFrame).
         if (!wasCorrection && virtualize) {
@@ -227,6 +242,11 @@ export function ReaderView() {
       // respeta como scroll de usuario y se cancela el tracking programático.
       clearProgrammatic();
     }
+    // B: los eventos residuales del settle de un smooth scroll (1-2 frames tras
+    // el aterrizaje) NO son interacción del usuario — no armar guard de 3s ni
+    // evaluar despegue por ellos. 200ms es suficiente para que un scroll real
+    // del usuario (eventos continuos) exceda el grace period y sí arme el guard.
+    if (Date.now() - programmaticJustClearedRef.current < 200) return;
     // Scroll del usuario: arma el guard y evalúa si nos "despegó" de la lectura.
     lastManualScrollRef.current = Date.now();
     setDetached(!isActiveVisible());
