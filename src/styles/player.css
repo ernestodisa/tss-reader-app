@@ -90,6 +90,11 @@
 .fp-play:hover:not(:disabled) {
   transform: scale(1.05);
 }
+.fp-play:active:not(:disabled) {
+  /* Gana sobre el :hover (misma especificidad 0,3,0, definido después): el
+     play SIEMPRE se hunde al presionar, mouse y touch por igual. */
+  transform: scale(0.95);
+}
 
 .fp-player button:disabled {
   opacity: 0.5;

@@ -15,8 +15,10 @@ export const ACCENTS: { id: Accent; label: string; swatch: string }[] = [
 
 /** swatch visible según el tema. En modo claro los acentos se oscurecen para
  *  mantener el contraste AA sobre --bg claro (los ACCENTS.swatch son del
- *  tema oscuro). Esto corrige el fallo de OD: swatches hardcodeados al dark. */
-export function useAccentSwatch(accent: Accent, theme: Theme): string {
+ *  tema oscuro). Esto corrige el fallo de OD: swatches hardcodeados al dark.
+ *  NO es un hook (no usa useState/useEffect) pese a no empezar con "use";
+ *  se invoca como función pura en el render. */
+export function accentSwatch(accent: Accent, theme: Theme): string {
   const dark = {
     ambar: '#e8a33d',
     violeta: '#a293f5',

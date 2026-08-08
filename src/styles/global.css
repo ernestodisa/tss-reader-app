@@ -135,7 +135,8 @@ body,
 :focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
-  border-radius: var(--radius-sm);
+  /* Sin border-radius: el radio lo define cada elemento (pill=999, círculo=50%,
+     card=lg). Un radio aquí (0,1,0) pisaría esos valores con igual especificidad. */
 }
 
 /* Feedback de presión en todo elemento interactivo (filosofía Emil):

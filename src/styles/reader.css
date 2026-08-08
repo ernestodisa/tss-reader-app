@@ -679,7 +679,7 @@
   animation: reader-return-in 160ms ease-out;
 }
 
-.reader-return-pill:active {
+button.reader-return-pill:active {
   transform: translateX(-50%) scale(0.97);
 }
 
