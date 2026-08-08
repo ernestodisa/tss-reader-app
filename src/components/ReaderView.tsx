@@ -143,13 +143,18 @@ export function ReaderView() {
     let target: number;
     if (node) {
       const c = el.getBoundingClientRect();
-      const r = node.getBoundingClientRect();
-      const desired = c.height / 2 - r.height / 2; // centrar el párrafo
-      target = el.scrollTop + (r.top - c.top) - desired;
+      // Anclar a la PALABRA activa si está montada; si no, al párrafo (su top
+      // ≈ word 0). Mismo 40% que el seguimiento fino (efecto [wordIndex]) → A y
+      // C convergen al MISMO destino y dejan de pelear en la frontera de párrafo
+      // (antes: párrafo al 50% vs palabra al 40% → el viewport iba y volvía).
+      const word = el.querySelector<HTMLElement>('.karaoke-text .kw-current');
+      const anchor = word ?? node;
+      const ar = anchor.getBoundingClientRect();
+      target = el.scrollTop + (ar.top - c.top) - c.height * 0.4;
     } else if (virtualize) {
       // Párrafo activo fuera de la ventana renderizada → destino ESTIMADO; el
       // render seguirá al nuevo scrollTop y luego se corrige con el rect real.
-      target = paragraphIndex * EST_PARAGRAPH_HEIGHT - el.clientHeight / 2;
+      target = paragraphIndex * EST_PARAGRAPH_HEIGHT - el.clientHeight * 0.4;
     } else {
       return; // no virtualizado y sin nodo: nada que centrar
     }
@@ -176,9 +181,13 @@ export function ReaderView() {
     }
     correctRetryRef.current = false;
     const c = el.getBoundingClientRect();
-    const r = node.getBoundingClientRect();
-    const desired = c.height / 2 - r.height / 2;
-    const delta = (r.top - c.top) - desired;
+    // Mismo anchor (palabra activa al 40%) que scrollToActive y el seguimiento
+    // fino → si A ya dejó la palabra en banda, |delta| < CORRECTION_MIN_PX y no
+    // encadena un segundo scroll (antes, 50% párrafo vs 40% palabra lo forzaba).
+    const word = el.querySelector<HTMLElement>('.karaoke-text .kw-current');
+    const anchor = word ?? node;
+    const ar = anchor.getBoundingClientRect();
+    const delta = (ar.top - c.top) - c.height * 0.4;
     if (Math.abs(delta) < CORRECTION_MIN_PX) return; // ya centrado
     const target = Math.max(0, el.scrollTop + delta);
     if (Math.abs(el.scrollTop - target) <= PROGRAMMATIC_EPSILON) return;
