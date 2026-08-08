@@ -229,6 +229,9 @@ export function ReaderView() {
     // peleamos — el botón "volver a la lectura" es el camino de regreso.
     if (detached) return;
     if (Date.now() - lastManualScrollRef.current < MANUAL_SCROLL_GUARD_MS) return;
+    // No interrumpir un scroll programático en vuelo (p. ej. el seguimiento
+    // fino de la palabra). Se reintentará el siguiente avance de párrafo.
+    if (programmaticTargetRef.current !== null) return;
     scrollToActive();
     // Solo cuando cambia la POSICIÓN (avance/salto), no en cada palabra.
   }, [chapterIndex, paragraphIndex, detached, scrollToActive]);
@@ -253,6 +256,9 @@ export function ReaderView() {
     const el = scrollRef.current;
     if (!el || detached) return;
     if (Date.now() - lastManualScrollRef.current < MANUAL_SCROLL_GUARD_MS) return;
+    // No interrumpir un scroll programático en vuelo (p. ej. el del párrafo que
+    // acaba de avanzar). El wordIndex volverá a evaluar en la siguiente palabra.
+    if (programmaticTargetRef.current !== null) return;
     const word = el.querySelector<HTMLElement>('.karaoke-text .kw-current');
     if (!word) return;
     const c = el.getBoundingClientRect();
