@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDocumentStore } from '../store/document-store';
 import { usePlaybackStore } from '../store/playback-store';
-import { useThemeStore, ACCENTS } from '../store/theme-store';
+import { useThemeStore, ACCENTS, useAccentSwatch } from '../store/theme-store';
 import { useAnnotationsStore } from '../store/annotations-store';
 import { playerAgent } from '../agents/player';
 import { BookmarkButton } from './BookmarkButton';
@@ -160,7 +160,7 @@ export function AppHeader() {
                     role="radio"
                     aria-checked={accent === a.id}
                     className={`accent-swatch${accent === a.id ? ' selected' : ''}`}
-                    style={{ background: a.swatch }}
+                    style={{ background: useAccentSwatch(a.id, theme) }}
                     onClick={() => setAccent(a.id)}
                     title={a.label}
                     aria-label={`Acento ${a.label}`}

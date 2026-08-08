@@ -14,6 +14,7 @@
   --line: #2d2925;
   --accent: #e8a33d;
   --accent-ink: #201812;
+  --error: #e57373;
 
   /* Aliases legacy: vistas aún no rediseñadas (reader/library/player) usan
      estos nombres; se mapean a los tokens nuevos para que sigan renderizando.
@@ -23,9 +24,50 @@
   --bg-surface: var(--bg2);
   --bg-elevated: var(--bg3);
   --accent-bright: var(--accent);
-  --error: #e57373;
   --radius: 12px;
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+
+  /* ── Escala de radios (D2) ── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* ── Escala tipográfica (D3) ── */
+  --fs-xs: 11px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+  --fs-3xl: 44px;
+
+  /* ── Escala de espaciado (D4) ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* ── Escala de elevación (D5) ── */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --elev-2: 0 6px 20px rgba(0, 0, 0, 0.28);
+  --elev-3: 0 18px 50px rgba(0, 0, 0, 0.4);
+  --overlay: rgba(0, 0, 0, 0.5);
+
+  /* ── Motion (D8): easing y duraciones tokenizadas ── */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur: 160ms;
+  --dur-med: 220ms;
+
+  /* ── Accesibilidad (D7) ── */
+  --focus-ring: 0 0 0 3px color-mix(in oklab, var(--accent) 48%, transparent);
 
   --font-ui: 'Instrument Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
@@ -64,8 +106,14 @@
   --line: #e2dacc;
   --accent: #9a6200;
   --accent-ink: #fffaf0;
+  /* Error ajustado para AA en modo claro (D1): #e57373 da ~3.0:1 en bg claro. */
+  --error: #b3261e;
 
   --shadow: 0 18px 50px rgba(80, 60, 30, 0.14);
+  --elev-1: 0 1px 2px rgba(60, 50, 30, 0.14);
+  --elev-2: 0 6px 20px rgba(60, 50, 30, 0.16);
+  --elev-3: 0 18px 50px rgba(60, 50, 30, 0.14);
+  --overlay: rgba(40, 30, 15, 0.35);
 }
 
 /* ── Reset mínimo ─────────────────────────────────────────────────────────── */
@@ -79,6 +127,39 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+/* ── Accesibilidad global (D7) ──
+   Anillo de foco consistente en TODO elemento interactivo (navegable por
+   teclado). Reemplaza el outline por defecto que iOS no pinta. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+/* Feedback de presión en todo elemento interactivo (filosofía Emil):
+   los botones "se hunden" al presionar. Se respeta prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  button:active:not(:disabled),
+  [role='button']:active:not(:disabled),
+  a:active {
+    transform: scale(0.97);
+  }
+  button, [role='button'], a {
+    transition: transform var(--dur-fast) var(--ease-io),
+      background-color var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out),
+      color var(--dur) var(--ease-out);
+  }
+}
+
+/* Hover táctil: no disparar transiciones hover en pantallas táctiles. */
+@media (hover: hover) and (pointer: fine) {
+  button:not(:disabled):hover,
+  [role='button']:not(:disabled):hover {
+    filter: brightness(1.05);
+  }
 }
 
 body {
@@ -166,6 +247,70 @@ a {
   font-weight: 600;
 }
 
+/* ── Botón unificado (D6) ─────────────────────────────────────────────────
+   Una sola clase base con variantes; reemplaza a las ~6 pills duplicadas
+   (.reader-notes-btn, .bookmark, .export-pill, .fp-chapbtn, .offline-dl, .pill).
+   Convive con las pills legacy mientras se migra el markup. Estados:
+   hover (gated a pointer:fine), :active con presión, :disabled apagado. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-full);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1;
+  border: 1px solid var(--line);
+  background: var(--bg3);
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  min-height: 36px;
+  transition: border-color var(--dur) var(--ease-out),
+    color var(--dur) var(--ease-out),
+    background-color var(--dur) var(--ease-out),
+    transform var(--dur-fast) var(--ease-io);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn:not(:disabled):hover {
+    border-color: var(--accent);
+    color: var(--ink);
+  }
+}
+
+/* Variantes */
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.btn--soft {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  border-color: transparent;
+  color: var(--accent);
+}
+.btn--solid {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn--icon {
+  padding: var(--space-2);
+  min-height: 36px;
+  min-width: 36px;
+  border-radius: var(--radius-md);
+}
+
 /* ── Waveform del player (decorativo) ─────────────────────────────────────── */
 @keyframes wave {
   from {
@@ -173,6 +318,22 @@ a {
   }
   to {
     transform: scaleY(1);
+  }
+}
+
+/* Respeto a prefers-reduced-motion (D9): sin animación de waveform, sin
+   transiciones posicionales, sin elevación por hover en cards. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .lib-card:hover {
+    transform: none !important;
   }
 }
 

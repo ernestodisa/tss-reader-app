@@ -19,7 +19,7 @@
 .app-header__logo {
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   color: var(--accent-ink);
   display: flex;
@@ -90,7 +90,15 @@
   border: 2px solid transparent;
   cursor: pointer;
   padding: 0;
+  position: relative;
   transition: transform 0.15s, border-color 0.15s;
+}
+/* Hit-area ≥38px sin agrandar el círculo visual (accesibilidad táctil). */
+.accent-swatch::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
 }
 
 .accent-swatch:hover {

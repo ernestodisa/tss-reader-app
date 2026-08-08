@@ -6,10 +6,29 @@ export type Theme = 'dark' | 'light';
 export type Accent = 'ambar' | 'violeta' | 'teal';
 
 export const ACCENTS: { id: Accent; label: string; swatch: string }[] = [
+  // swatch se deriva del tema activo en tiempo de render (ver useAccentSwatch):
+  // dark → tonos claros; light → tonos oscuros (contraste AA sobre bg).
   { id: 'ambar', label: 'Ámbar', swatch: '#e8a33d' },
   { id: 'violeta', label: 'Violeta', swatch: '#a293f5' },
   { id: 'teal', label: 'Teal', swatch: '#5fc9ae' },
 ];
+
+/** swatch visible según el tema. En modo claro los acentos se oscurecen para
+ *  mantener el contraste AA sobre --bg claro (los ACCENTS.swatch son del
+ *  tema oscuro). Esto corrige el fallo de OD: swatches hardcodeados al dark. */
+export function useAccentSwatch(accent: Accent, theme: Theme): string {
+  const dark = {
+    ambar: '#e8a33d',
+    violeta: '#a293f5',
+    teal: '#5fc9ae',
+  } as const;
+  const light = {
+    ambar: '#9a6200',
+    violeta: '#6a58d6',
+    teal: '#0f8a70',
+  } as const;
+  return (theme === 'light' ? light : dark)[accent];
+}
 
 /** Escala tipográfica del lector (multiplica el tamaño base del texto). */
 export const FONT_SCALES = [0.85, 1, 1.15, 1.3, 1.5] as const;
@@ -44,12 +63,22 @@ function nearestScaleIndex(v: number): number {
   return best;
 }
 
+/** Tema inicial respetando la preferencia del sistema (D9). Solo se usa como
+ *  default cuando el usuario no ha guardado una preferencia explícita. */
+function systemTheme(): Theme {
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+    return 'light';
+  }
+  return 'dark';
+}
+
 export const useThemeStore = create<ThemeStore>()(
   persist(
     (set, get) => ({
-      theme: 'dark',
+      theme: systemTheme(),
       accent: 'ambar',
       fontScale: 1,
+
       toggle: () => {
         const next: Theme = get().theme === 'dark' ? 'light' : 'dark';
         applyTheme(next, get().accent, get().fontScale);
@@ -80,7 +109,7 @@ export const useThemeStore = create<ThemeStore>()(
       name: 'folio-theme',
       // Al rehidratar desde localStorage, aplica tema y acento guardados al DOM.
       onRehydrateStorage: () => (state) => {
-        applyTheme(state?.theme ?? 'dark', state?.accent ?? 'ambar', state?.fontScale ?? 1);
+        applyTheme(state?.theme ?? systemTheme(), state?.accent ?? 'ambar', state?.fontScale ?? 1);
       },
     },
   ),
