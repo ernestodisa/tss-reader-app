@@ -22,6 +22,15 @@ export async function extractPDF(file: File): Promise<{ title: string; author?: 
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
 
+    // Obtener las dimensiones de la página para filtrar headers/footers.
+    // page.view = [xMin, yMin, xMax, yMax] en el sistema de pdf.js (origen
+    // abajo-izquierda). Los text items tienen transform[5] = y en ese sistema:
+    // y ALTA = arriba de la página (header), y BAJA = abajo (footer/nº página).
+    const [, , , pageH] = page.view;
+    const safePageH = pageH || 792; // fallback letter 11"
+    const HEADER_CUT = safePageH * 0.88; // y > 88% de la altura → header
+    const FOOTER_CUT = safePageH * 0.08; // y < 8% de la altura → footer/nº
+
     // Reconstruct paragraphs from text items
     // pdfjs TextItem has: str, dir, transform, width, height, fontName, hasEOL
     const textItems = content.items
@@ -33,7 +42,10 @@ export async function extractPDF(file: File): Promise<{ title: string; author?: 
           y: ti.transform[5],
           x: ti.transform[4],
         };
-      });
+      })
+      // Filtrar headers (título/autor arriba) y footers (nº de página abajo)
+      // que el PDF incrusta en cada página y no son contenido del libro.
+      .filter((item) => item.y <= HEADER_CUT && item.y >= FOOTER_CUT);
 
     const paragraphs = groupIntoParagraphs(textItems, pageNum, globalParaCounter);
     globalParaCounter += paragraphs.length;
