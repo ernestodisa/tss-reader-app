@@ -823,9 +823,25 @@ button.reader-return-pill:active {
   padding: 0;
 }
 /* Los menús desplegables del AppHeader embedded se posicionan anclados a su
-   .appearance (relative). En landscape móvil quedan visibles sobre el contenido. */
+   .appearance (relative). En landscape quedan visibles sobre el contenido. */
 .reader-single-header .app-header--embedded .appearance__menu {
   top: calc(100% + 6px);
+}
+/* Portrait móvil: el header único es bajo y un menú absolute que cae debajo se
+   truncaría; el app-header.css ya le pone position:fixed (visible sobre el lector).
+   PERO ese top:calc(100%+6px) de arriba, con fixed, mide el 100% del VIEWPORT
+   → el menú caería fuera de pantalla. Aquí lo re-anclamos dentro del viewport. */
+@media (max-width: 899px) and (orientation: portrait) {
+  .reader-single-header .app-header--embedded .appearance__menu {
+    position: fixed;
+    top: calc(48px + env(safe-area-inset-top, 0px));
+    right: 12px;
+    left: 12px;
+    min-width: 0;
+    max-height: calc(100vh - env(safe-area-inset-top, 0px) - 72px);
+    overflow-y: auto;
+    bottom: auto;
+  }
 }
 /* En mobile: el detalle largo (Cap.n/…) se oculta; solo queda el % breve. */
 @media (max-width: 640px) {
