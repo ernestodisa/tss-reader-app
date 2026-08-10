@@ -444,9 +444,6 @@ export function ReaderView() {
 
             <span className="rs-progress">
               {percent}%
-              <span className="reader-progress__detail">
-                {' '}· Cap. {chapterIndex + 1}/{doc.chapters.length}
-              </span>
             </span>
 
             {/* Acciones (Biblioteca, ☆, Aa) — embedded dentro de la barra única. */}

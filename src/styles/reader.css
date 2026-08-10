@@ -757,7 +757,13 @@ button.reader-return-pill:active {
   top: 0;
   z-index: 30;
   height: calc(44px + env(safe-area-inset-top, 0px));
-  padding: env(safe-area-inset-top, 0px) var(--space-3) 0;
+  /* Safe areas laterales (Dynamic Island y bordes redondeados del iPhone en
+     landscape): el contenido no se corta contra las esquinas. Los elementos se
+     centran verticalmente y el carril respeta el padding de cada lado. */
+  padding: env(safe-area-inset-top, 0px)
+    calc(var(--space-3) + env(safe-area-inset-right, 0px)) 0
+    calc(var(--space-3) + env(safe-area-inset-left, 0px));
+  align-items: center;
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
@@ -792,6 +798,17 @@ button.reader-return-pill:active {
 .reader-single-header .app-header--embedded { display: contents; }
 .reader-single-header .app-header--embedded .app-header__brand { display: none; }
 .reader-single-header .app-header--embedded .app-header__actions { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-1); }
+/* Iconos compactos y centrados: Biblioteca ahora es solo ícono (sin etiqueta). */
+.reader-single-header .app-header--embedded .app-header__actions .pill {
+  min-width: 36px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+}
+.reader-single-header .app-header--embedded .app-header__actions .appearance__toggle {
+  min-width: 36px;
+  padding: 0;
+}
 /* En mobile: el detalle largo (Cap.n/…) se oculta; solo queda el % breve. */
 @media (max-width: 640px) {
   .reader-single-header .reader-progress__detail { display: none; }
