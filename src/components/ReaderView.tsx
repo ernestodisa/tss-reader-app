@@ -5,6 +5,7 @@ import { useDocumentStore } from '../store/document-store';
 import { useLibraryStore } from '../store/library-store';
 import { playerAgent } from '../agents/player';
 import '../styles/reader.css';
+import { AppHeader } from './AppHeader';
 import { KaraokeText } from './KaraokeText';
 import { ChapterList } from './ChapterList';
 import { PlayerBar } from './PlayerBar';
@@ -419,37 +420,38 @@ export function ReaderView() {
         />
 
         <div className="reader-main">
-          <div className="reader-chapter-header">
-            <div className="reader-chapter-heading">
-              <button
-                type="button"
-                className="chapter-drawer-toggle"
-                onClick={() => setShowChapters((v) => !v)}
-                aria-label="Índice de capítulos"
-                aria-expanded={showChapters}
-                title="Índice de capítulos"
-              >
-                ☰
-              </button>
-              {/* Línea única compacta: "15 · Chapter Five…" (foco en el texto;
-                  las acciones viven ahora en el menú ☆ del AppHeader). */}
-              <h2 className="reader-chapter-title reader-chapter-title--line">
-                <span className="reader-chapter-num">{chapterIndex + 1}</span>
-                <span className="reader-chapter-sep" aria-hidden="true">·</span>
-                {chapter.title}
-              </h2>
-            </div>
+          <header className="reader-single-header">
+            {/* Logo "f" (brand Folio) — reemplaza al del AppHeader en el lector. */}
+            <span className="rs-logo" aria-hidden="true">f</span>
+
+            {/* Control de capítulos ☰ + referencia (flexible; el título trunca). */}
+            <button
+              type="button"
+              className="rs-chapter"
+              onClick={() => setShowChapters((v) => !v)}
+              aria-expanded={showChapters}
+              aria-haspopup="menu"
+              aria-label="Índice de capítulos"
+              title="Índice de capítulos"
+            >
+              <span className="rs-chapter__burger" aria-hidden="true">☰</span>
+              <span className="rs-chapter__num">{chapterIndex + 1}</span>
+              <span className="rs-chapter__sep" aria-hidden="true">·</span>
+              <span className="rs-chapter__title">{chapter.title}</span>
+            </button>
 
             <OfflineDownloadButton doc={doc} chapterIndex={chapterIndex} />
 
-            <span className="reader-progress">
+            <span className="rs-progress">
               {percent}%
               <span className="reader-progress__detail">
-                {' '}· Cap. {chapterIndex + 1}/{doc.chapters.length} · párr.{' '}
-                {paragraphIndex + 1}/{total}
+                {' '}· Cap. {chapterIndex + 1}/{doc.chapters.length}
               </span>
             </span>
-          </div>
+
+            {/* Acciones (Biblioteca, ☆, Aa) — embedded dentro de la barra única. */}
+            <AppHeader embedded />
+          </header>
 
           <div className="reader-content" ref={scrollRef} onScroll={handleScroll}>
             <div className="reader-column">

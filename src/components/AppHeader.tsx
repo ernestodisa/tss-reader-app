@@ -17,7 +17,7 @@ import '../styles/app-header.css';
  * dispara el popstate que ReaderView ya escucha → closeReader) o, si no hay
  * estado de lector, descarga el documento directamente.
  */
-export function AppHeader() {
+export function AppHeader({ embedded = false }: { embedded?: boolean }) {
   const doc = useDocumentStore((s) => s.doc);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
@@ -68,7 +68,7 @@ export function AppHeader() {
   const isDark = theme === 'dark';
 
   return (
-    <header className="app-header">
+    <header className={`app-header${embedded ? ' app-header--embedded' : ''}`}>
       <div className="app-header__brand">
         <span className="app-header__logo" aria-hidden="true">
           f
