@@ -102,7 +102,10 @@ export function AppHeader({ embedded = false }: { embedded?: boolean }) {
             <button
               type="button"
               className="pill appearance__toggle"
-              onClick={() => setActionsOpen((v) => !v)}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                setActionsOpen((v) => !v);
+              }}
               aria-expanded={actionsOpen}
               aria-haspopup="menu"
               title="Marcar, notas y exportar"
@@ -138,13 +141,20 @@ export function AppHeader({ embedded = false }: { embedded?: boolean }) {
           <button
             type="button"
             className="pill appearance__toggle"
-            onClick={() => setMenuOpen((v) => !v)}
+            onPointerDown={(e) => {
+              // iOS: el 1er toque (pointerdown) abre el menú de inmediato.
+              // Con onClick solo, los listener touchstart/pointerdown globales
+              // (p.ej. reShow del PlayerBar) pueden comerse el 1er tap y hay
+              // que tocar dos veces. Prevenir default evita el doble toggle.
+              e.preventDefault();
+              setMenuOpen((v) => !v);
+            }}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
             title="Apariencia"
-          >
+            >
             Aa
-          </button>
+            </button>
           {menuOpen && (
             <div className="appearance__menu" role="menu">
               <button type="button" className="pill appearance__row" onClick={toggleTheme}>
