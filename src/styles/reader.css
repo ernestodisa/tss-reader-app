@@ -656,6 +656,23 @@
   }
 }
 
+/* Landscape móvil: la barra de capítulo se compacta para fusionarse con el
+   header global (que ya colapsó su wordmark) en una franja única, ganando
+   espacio vertical de lectura en horizontal. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .reader-chapter-header {
+    padding: 8px 16px;
+    border-bottom: none;
+    gap: 12px;
+  }
+  .reader-chapter-title {
+    font-size: 15px;
+  }
+  .reader-progress {
+    font-size: 11px;
+  }
+}
+
 /* ═══ Botón temporal "volver a la lectura" ═══════════════════════════════
    Aparece cuando el scroll manual dejó fuera de pantalla el párrafo activo
    (la palabra subrayada por el karaoke). Flota centrado justo encima del

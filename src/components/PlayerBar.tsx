@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlayback } from '../hooks/usePlayback';
 import { usePlaybackStore } from '../store/playback-store';
 import { useDocumentStore } from '../store/document-store';
@@ -38,6 +38,58 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   // (en iOS audio.volume es no-op, pero en Android un valor persistido <1
   // atenuaría sin forma de subirlo).
   const isTouchDevice = useMemo(() => window.matchMedia('(pointer: coarse)').matches, []);
+
+  // ── Auto-hide del player (modo limpio, fullscreen en landscape) ──────────
+  // Mientras está reproduciendo y el usuario no interactúa, el player se oculta
+  // tras ~3s para maximizar el área de lectura. Cualquier interacción (tap/press
+  // o control) lo reaparece y reinicia el contador. En pausa permanece siempre
+  // visible (no tiene sentido ocultar los controles si no está reproduciendo).
+  const [controlsHidden, setControlsHidden] = useState(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const kickHideTimer = () => {
+    setControlsHidden(false);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    if (usePlaybackStore.getState().isPlaying) {
+      hideTimerRef.current = setTimeout(() => setControlsHidden(true), 3000);
+    }
+  };
+
+  useEffect(() => {
+    const playing = usePlaybackStore.getState().isPlaying;
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    // Al reproducir, armamos el contador; al pausar, lo mostramos y cancelamos.
+    if (playing) {
+      setControlsHidden(false);
+      hideTimerRef.current = setTimeout(() => setControlsHidden(true), 3000);
+    } else {
+      setControlsHidden(false);
+    }
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, [isPlaying]);
+
+  useEffect(() => () => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+  }, []);
+
+  // Al cerrar el lector se descarta el estado oculto para la próxima apertura.
+  useEffect(() => () => setControlsHidden(false), []);
+
+  // Cuando el player está OCULTO, un tap/pointerdown en cualquier parte de la
+  // pantalla lo reaparece (el player trasladado fuera está con pointer-events
+  // none, así que el tap cae en el cuerpo del lector — lo capturamos aquí).
+  useEffect(() => {
+    if (!controlsHidden) return;
+    const reShow = () => kickHideTimer();
+    document.addEventListener('pointerdown', reShow, { passive: true });
+    document.addEventListener('touchstart', reShow, { passive: true });
+    return () => {
+      document.removeEventListener('pointerdown', reShow);
+      document.removeEventListener('touchstart', reShow);
+    };
+  }, [controlsHidden]);
 
   // Aplica el volumen persistido/actual al GainNode del agente. Corre en montaje
   // (restaura la preferencia guardada por zustand persist) y en cada cambio.
@@ -643,25 +695,29 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   }, [doc]);
 
   return (
-    <div className={`fp-player${isPlaying ? ' is-playing' : ''}`}>
+    <div
+      className={`fp-player${isPlaying ? ' is-playing' : ''}${controlsHidden ? ' is-hidden' : ''}`}
+      onClick={kickHideTimer}
+      onPointerDown={kickHideTimer}
+    >
       <div className="fp-transport">
         <button
           className="fp-chapbtn"
-          onClick={handlePrevChapter}
+          onClick={(e) => { e.stopPropagation(); kickHideTimer(); handlePrevChapter(); }}
           disabled={isBuffering || chapterIndex === 0}
           title="Capítulo anterior"
           aria-label="Capítulo anterior"
         >
           Cap −
         </button>
-        <button className="fp-round" onClick={handlePrev} disabled={isBuffering} title="Párrafo anterior" aria-label="Párrafo anterior">⏮︎</button>
-        <button className="fp-play" onClick={handlePlayPause} disabled={isBuffering} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
+        <button className="fp-round" onClick={(e) => { e.stopPropagation(); kickHideTimer(); handlePrev(); }} disabled={isBuffering} title="Párrafo anterior" aria-label="Párrafo anterior">⏮︎</button>
+        <button className="fp-play" onClick={(e) => { e.stopPropagation(); kickHideTimer(); handlePlayPause(); }} disabled={isBuffering} aria-label={isPlaying ? 'Pausar' : 'Reproducir'}>
           {isBuffering ? <IconSpinner /> : isPlaying ? '❚❚' : <IconPlay />}
         </button>
-        <button className="fp-round" onClick={handleNext} disabled={isBuffering} title="Párrafo siguiente" aria-label="Párrafo siguiente">⏭︎</button>
+        <button className="fp-round" onClick={(e) => { e.stopPropagation(); kickHideTimer(); handleNext(); }} disabled={isBuffering} title="Párrafo siguiente" aria-label="Párrafo siguiente">⏭︎</button>
         <button
           className="fp-chapbtn"
-          onClick={handleNextChapter}
+          onClick={(e) => { e.stopPropagation(); kickHideTimer(); handleNextChapter(); }}
           disabled={isBuffering || chapterIndex >= doc.chapters.length - 1}
           title="Capítulo siguiente"
           aria-label="Capítulo siguiente"
@@ -678,10 +734,10 @@ export function PlayerBar({ doc }: PlayerBarProps) {
 
       <div className="fp-spacer" />
 
-      <VoiceSelector />
+      <VoiceSelector onInteract={kickHideTimer} />
 
       <div className="fp-sep">
-        <SpeedControl />
+        <SpeedControl onInteract={kickHideTimer} />
       </div>
 
       {!isTouchDevice && (
@@ -694,7 +750,7 @@ export function PlayerBar({ doc }: PlayerBarProps) {
             step={0.01}
             value={volume}
             aria-label="Volumen"
-            onChange={(e) => setVolume(Number(e.target.value))}
+            onChange={(e) => { setVolume(Number(e.target.value)); kickHideTimer(); }}
           />
         </label>
       )}

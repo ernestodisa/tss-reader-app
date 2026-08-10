@@ -45,7 +45,7 @@ async function fetchEngines(): Promise<RemoteEngineInfo[]> {
   return enginesPromise;
 }
 
-export function VoiceSelector() {
+export function VoiceSelector({ onInteract }: { onInteract?: () => void }) {
   const { voiceId, setVoice } = usePlayback();
   const [remoteEngines, setRemoteEngines] = useState<RemoteEngineInfo[] | null>(enginesCache);
   const [open, setOpen] = useState(false);
@@ -92,6 +92,7 @@ export function VoiceSelector() {
   const handlePick = (value: string) => {
     setVoice(value);
     setOpen(false);
+    onInteract?.();
   };
 
   return (

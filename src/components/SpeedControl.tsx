@@ -9,11 +9,11 @@ function formatSpeed(s: number): string {
   return `${parseFloat(s.toFixed(2))}×`;
 }
 
-export function SpeedControl() {
+export function SpeedControl({ onInteract }: { onInteract?: () => void }) {
   const { speed, setSpeed } = usePlayback();
 
-  const dec = () => setSpeed(Math.max(MIN, parseFloat((speed - STEP).toFixed(2))));
-  const inc = () => setSpeed(Math.min(MAX, parseFloat((speed + STEP).toFixed(2))));
+  const dec = () => { setSpeed(Math.max(MIN, parseFloat((speed - STEP).toFixed(2)))); onInteract?.(); };
+  const inc = () => { setSpeed(Math.min(MAX, parseFloat((speed + STEP).toFixed(2)))); onInteract?.(); };
 
   return (
     <div className="fp-speed">

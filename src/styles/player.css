@@ -26,6 +26,18 @@
   border-radius: var(--radius-full);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
   padding: 12px 20px;
+
+  /* Auto-hide (modo limpio): se desliza y se desvanece fuera de la vista.
+     La transición es suave para reaparecer con un tap. */
+  transition: transform 0.25s var(--ease-io), opacity 0.25s var(--ease-out);
+}
+
+/* Player oculto: sale por debajo + fade. Sigue "presente" para poder
+   reaparecer con un tap/pointerdown (que dispara setControlsHidden(false)). */
+.fp-player.is-hidden {
+  transform: translateX(-50%) translateY(calc(110% + 24px));
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ── Cluster de transporte ────────────────────────────────────────────────── */

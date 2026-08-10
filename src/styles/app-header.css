@@ -74,6 +74,35 @@
   }
 }
 
+/* ── Landscape móvil (altura escasa): franja única compacta ────────────────
+   En horizontal el espacio vertical es oro. Se oculta el wordmark (Folio /
+   Audiolector) dejando solo el logo "f", se compacta el padding y se elimina
+   el borde inferior para fusionar con la barra de capítulo del lector en un
+   único encabezado de carril ancho. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app-header {
+    padding: 6px 16px;
+    border-bottom: none;
+    gap: 10px;
+  }
+  .app-header__wordmark {
+    display: none;
+  }
+  .app-header__logo {
+    width: 26px;
+    height: 26px;
+    font-size: 16px;
+  }
+  .app-header__actions {
+    gap: 6px;
+  }
+  .app-header__actions .appearance__toggle,
+  .app-header__lib {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+}
+
 /* ── Selector de acento (Ámbar/Violeta/Teal del mockup) ──────────────────── */
 .accent-picker {
   display: flex;
