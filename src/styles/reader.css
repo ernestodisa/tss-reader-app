@@ -794,8 +794,21 @@ button.reader-return-pill:active {
   font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums;
   color: var(--muted); white-space: nowrap; padding: 0 var(--space-1);
 }
-/* Las acciones del AppHeader embedded se integran como último grupo. */
-.reader-single-header .app-header--embedded { display: contents; }
+/* Las acciones del AppHeader embedded se integran como último grupo.
+   IMPORTANTE: NO usar display:contents — rompe la caja del <header> y sus
+   menús desplegables (position:absolute/fixed anclados a .appearance/.appearance__menu),
+   dejando los botones sin respuesta en móvil/landscape. Se usa una caja flex
+   real y compacta que conserva la estructura del componente (y sus menús). */
+.reader-single-header .app-header--embedded {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: none;
+  background: none;
+  padding: 0;
+  height: 100%;
+}
 .reader-single-header .app-header--embedded .app-header__brand { display: none; }
 .reader-single-header .app-header--embedded .app-header__actions { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-1); }
 /* Iconos compactos y centrados: Biblioteca ahora es solo ícono (sin etiqueta). */
@@ -808,6 +821,11 @@ button.reader-return-pill:active {
 .reader-single-header .app-header--embedded .app-header__actions .appearance__toggle {
   min-width: 36px;
   padding: 0;
+}
+/* Los menús desplegables del AppHeader embedded se posicionan anclados a su
+   .appearance (relative). En landscape móvil quedan visibles sobre el contenido. */
+.reader-single-header .app-header--embedded .appearance__menu {
+  top: calc(100% + 6px);
 }
 /* En mobile: el detalle largo (Cap.n/…) se oculta; solo queda el % breve. */
 @media (max-width: 640px) {
