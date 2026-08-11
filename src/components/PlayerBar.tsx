@@ -150,12 +150,14 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     nextIndex: number;
     wordOffset: number; // palabras acumuladas de chunks ya reproducidos
     // A3: token por-invocación de queueUpcoming. Los guards gen/identidad no
-    // distinguen DOS queueUpcoming vivos sobre la MISMA chain (p.ej. el
+    // distinguen DOS queueUpcoming vivos sobre la misma chain (p.ej. el
     // re-fetch del endCallback carreando contra un pre-encolado en vuelo).
     // playChunkFromChain lo incrementa en cada reproducción MANUAL (camino que
     // NO es el pre-encolado); queueUpcoming captura el valor al arrancar y
     // aborta si cambió antes de encolar.
     queueEpoch: number;
+    // Contador de chunks pre-calentados por warmRemaining (solo diagnóstico).
+    warmCount: number;
   }
   const chainRef = useRef<ChunkChain | null>(null);
 
@@ -255,6 +257,28 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     playerAgent.setExpectingMore(expectingMoreRef.current > 0);
   };
 
+  // ── Fix (1): pre-calentar al cache los chunks restantes del párrafo actual ──
+  // Cuando un párrafo empieza a sonar, dispara en paralelo la descarga (y
+  // caché) de TODOS sus chunks desde el próximo pendiente hasta el final. Así
+  // cada `queueUpcoming` posterior encuentra el chunk en cache (hit instantáneo)
+  // en vez de esperar latencia de red + síntesis — crítico a 2x donde el audio
+  // se consume el doble de rápido y el margen de anticipación se reduce.
+  // Fire-and-forget: el resultado real lo consume queueUpcoming/playChunk; aquí
+  // solo llenamos el cache. La generación gatea el trabajo obsoleto.
+  const warmRemaining = (chain: ChunkChain, fromIndex: number): void => {
+    for (let i = fromIndex; i < chain.chunks.length; i++) {
+      const chunk = chain.chunks[i];
+      void fetchTTS(chunk).then((r) => {
+        // Solo contamos como útil si la generación y la cadena siguen vigentes;
+        // si no, el usuario ya se movió (el chunk no se reproducirá igual).
+        if (usePlaybackStore.getState().generationId === chain.gen && chainRef.current === chain) {
+          if (r.success) setParagraphTiming(chain.paragraph.id, { status: 'ready', timings: r.data.words });
+          chain.warmCount = (chain.warmCount || 0) + 1;
+        }
+      });
+    }
+  };
+
   const queueUpcoming = async (chain: ChunkChain): Promise<void> => {
     // A3: epoch de la cadena al arrancar. Si otro camino MANUAL
     // (playChunkFromChain vía endCallback) avanza la cadena mientras este fetch
@@ -273,6 +297,9 @@ export function PlayerBar({ doc }: PlayerBarProps) {
             paragraphId: chain.paragraph.id,
             paragraphAdvance: false,
           }, r.data.durationMs);
+          // Fix (2): tras encolar el próximo chunk, calentar el resto de la
+          // cadena pendiente → los cruces siguientes son cache-hits inmediatos.
+          warmRemaining(chain, chain.nextIndex + 1);
         }
         return;
       }
@@ -306,11 +333,16 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         // Cadena gapless nueva: su propio epoch arranca en 0 y avanza solo cuando
         // ESTA chain reproduzca manualmente (coherente con SU chain, A3).
         queueEpoch: 0,
+        warmCount: 0,
       };
       playerAgent.queueNext([r.data.audio], r.data.words, {
         paragraphId: paragraph.id,
         paragraphAdvance: true,
       }, r.data.durationMs);
+      // Fix (2)+: en el cruce de párrafo, calentar YA los chunks restantes del
+      // párrafo nuevo (el 0 ya quedó encolado arriba). Así el auto-avance
+      // arranca con margen de sobra incluso a 2x.
+      warmRemaining(pendingNextChainRef.current, 1);
     } finally {
       // A5: el fetch aterrizó (encoló, abortó por gen/epoch, o falló) → un
       // "expecting" menos. Al llegar a 0 el motor vuelve a poder detectar el
@@ -366,7 +398,12 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       nextIndex: start,
       wordOffset,
       queueEpoch: 0,
+      warmCount: 0,
     };
+    // Fix (1): pre-calentar al cache los chunks restantes en cuanto el párrafo
+    // arranca, para que los cruces de chunk sean cache-hits (no espera de red).
+    // Desde `start` (= nextIndex actual, ya sonando el `start`) hasta el final.
+    warmRemaining(chainRef.current, start);
     await playChunkFromChain();
   };
 
