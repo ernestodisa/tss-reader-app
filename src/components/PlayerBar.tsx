@@ -541,6 +541,38 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     return () => clearMediaSession();
   }, []);
 
+  // Barra espaciadora = play/pause (solo desktop y con libro abierto).
+  // Referencia al último handlePlayPause para no re-registrar el listener en
+  // cada render (el efecto depende solo de `doc`).
+  const playPauseRef = useRef(handlePlayPause);
+  playPauseRef.current = handlePlayPause;
+  useEffect(() => {
+    if (!doc) return; // solo en el lector
+    // Solo puntero fino (desktop); en táctil el espacio no debe secuestrarse.
+    if (!window.matchMedia('(pointer: fine)').matches) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      // No interferir mientras el foco está en un campo editable.
+      const el = document.activeElement as HTMLElement | null;
+      if (
+        el &&
+        (el.isContentEditable ||
+          el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT')
+      ) {
+        return;
+      }
+      // Evita que el espacio haga scroll en la página.
+      e.preventDefault();
+      if (!usePlaybackStore.getState().isBuffering) {
+        void playPauseRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doc]);
+
   // Wire karaoke word tracking + auto-advance when audio ends
   useEffect(() => {
     // BUG FIX #1: wordIndex must be pushed to the store so KaraokeText highlights the active word
