@@ -171,7 +171,12 @@ export function ReaderView() {
     } else {
       return; // no virtualizado y sin nodo: nada que centrar
     }
-    target = Math.max(0, target);
+    // Clamp al rango desplazable: al final de un párrafo largo el destino ideal
+    // (palabra al 40%) excede el scroll máximo; el navegador clampea el scroll
+    // pero el ref del target conservaba el valor mayor → el scroll programático
+    // nunca llegaba a ≤ε, bloqueaba el seguimiento fino por 3s y podía activar
+    // detached (karaoke muere). Aquí el target se limita a scrollHeight-clientHeight.
+    target = Math.max(0, Math.min(target, el.scrollHeight - el.clientHeight));
     if (Math.abs(el.scrollTop - target) <= PROGRAMMATIC_EPSILON) return; // ya está
     armProgrammatic(target, false);
     el.scrollTo({ top: target, behavior: 'smooth' });
@@ -202,7 +207,9 @@ export function ReaderView() {
     const ar = anchor.getBoundingClientRect();
     const delta = (ar.top - c.top) - c.height * 0.4;
     if (Math.abs(delta) < CORRECTION_MIN_PX) return; // ya centrado
-    const target = Math.max(0, el.scrollTop + delta);
+    // Clamp al máximo desplazable (párrafos finales): el destino no debe
+    // exceder el scroll máximo o el scroll programático no aterriza en ε.
+    const target = Math.max(0, Math.min(el.scrollTop + delta, el.scrollHeight - el.clientHeight));
     if (Math.abs(el.scrollTop - target) <= PROGRAMMATIC_EPSILON) return;
     armProgrammatic(target, true);
     el.scrollTo({ top: target, behavior: 'smooth' });
@@ -296,7 +303,10 @@ export function ReaderView() {
     const topBand = c.top + c.height * 0.25;
     const bottomBand = c.top + c.height * 0.7;
     if (r.top >= topBand && r.bottom <= bottomBand) return; // en banda: no tocar
-    const target = Math.max(0, el.scrollTop + (r.top - c.top) - c.height * 0.4);
+    const target = Math.max(0, Math.min(
+      el.scrollTop + (r.top - c.top) - c.height * 0.4,
+      el.scrollHeight - el.clientHeight,
+    ));
     if (Math.abs(el.scrollTop - target) <= PROGRAMMATIC_EPSILON) return;
     armProgrammatic(target, false);
     el.scrollTo({ top: target, behavior: 'smooth' });
