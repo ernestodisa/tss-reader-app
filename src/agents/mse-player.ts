@@ -656,7 +656,7 @@ export class MseEngine implements PlaybackEngine {
         const idx = active.timings.findIndex(
           (t) => rel >= t.offsetMs && rel < t.offsetMs + t.durationMs,
         );
-        if (idx >= 0) this.wordCallback?.(idx);
+        if (idx >= 0) this.wordCallback?.(active.timings[idx].wordIndex);
       }
 
       if (this._hasCurrent) {

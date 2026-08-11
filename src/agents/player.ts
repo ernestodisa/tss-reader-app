@@ -248,7 +248,10 @@ export class PlayerAgent implements PlaybackEngine {
           (t) => ms >= t.offsetMs && ms < t.offsetMs + t.durationMs
         );
         if (idx >= 0) {
-          this.wordCallback?.(idx);
+          // Emite el wordIndex del TOKEN FUENTE (alineado por tts-client), NO la
+          // posición ordinal del array: Edge devuelve timings que no coinciden
+          // 1:1 con tokens \S+, y usar el ordinal rompía el karaoke (K3).
+          this.wordCallback?.(this._timings[idx].wordIndex);
         }
       }
       if (this._currentParagraphId) {

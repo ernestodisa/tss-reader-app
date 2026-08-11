@@ -1,7 +1,42 @@
 import { useCacheStore } from '../store/cache-store';
 import { TieredCache } from '../lib/tiered-cache';
+import { tokenize } from '../lib/tokenizer';
 
 import type { AgentResult, TTSChunk, TTSResponse, WordTiming } from '../types';
+
+/**
+ * Alinea los timings de TTS contra los tokens (\S+) del TEXTO DEL CHUNK y
+ * escribe en cada timing el wordIndex del TOKEN FUENTE (local al chunk).
+ *
+ * Por qué: el karaoke indexa por tokens \S+ del párrafo, pero Edge devuelve un
+ * número de word-timings que NO coincide con el de tokens whitespace (p. ej.
+ * "quizá—dijo" —sin espacio— produce 2 timings para 1 token). Si el motor
+ * emitiera la posición ordinal del array de timings como índice, el índice
+ * global (wordOffset + local) saldría de rango y el karaoke (.kw-current)
+ * desaparecería en párrafos grandes/2x. Al mapear cada timing a su token fuente
+ * se usa SIEMPRE un índice de token válido (varios timings → mismo token).
+ */
+export function alignTimings(text: string, timings: WordTiming[]): WordTiming[] {
+  const spans = tokenize(text);
+  let cursor = 0;
+  let last = 0;
+  const result: WordTiming[] = [];
+  for (const t of timings) {
+    // Busca el timing en el texto del chunk desde el cursor (secuencial).
+    const needle = t.text ?? '';
+    let at = text.indexOf(needle, cursor);
+    if (at < 0) at = text.toLowerCase().indexOf(needle.toLowerCase(), cursor);
+    if (at >= 0) cursor = at + needle.length;
+    // El timing cae dentro de un token \S+ si su rango solapa el del span.
+    const local =
+      at < 0
+        ? -1
+        : spans.findIndex((s) => at < s.charEnd && at + needle.length > s.charStart);
+    if (local >= 0) last = local;
+    result.push({ ...t, wordIndex: local >= 0 ? local : last });
+  }
+  return result;
+}
 
 // ── Worker URL (configurable via Vite env) ──────────────────────────────
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787';
@@ -72,7 +107,9 @@ export async function fetchTTS(
         chunkId: chunk.id,
         audio: cachedRaw.value.audio,
         format: 'mp3',
-        words: cachedTimings,
+        // Realinear incluso en cache-hit: entradas cacheadas antes de este bug
+        // (K2) tienen wordIndex = posición del array, no el token fuente.
+        words: alignTimings(chunk.text, cachedTimings),
         durationMs: cachedRaw.value.durationMs,
       },
     };

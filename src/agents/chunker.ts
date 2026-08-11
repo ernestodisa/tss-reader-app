@@ -54,13 +54,27 @@ export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
       let globalWordIndex = 0;
 
       for (const sentence of sentences) {
-        if (currentChunkText.length + sentence.length + 1 > maxChars && currentChunkText.length > 0) {
-          // Flush current chunk
+        // Chunker LOSSLESS: cortar solo en una frontera de whitespace y NO
+        // insertar espacios artificiales entre oraciones. Antes se hacía
+        // `(cur ? ' ' : '') + sentence`, que añadía un espacio que el párrafo
+        // original no tenía (p. ej. en "—¿Qué?—No" pegados) y rompía el
+        // conteo de tokens: sum(tokens de chunks) != tokens del párrafo, con
+        // lo que el karaoke se desalineaba y, en párrafos grandes/2x, el
+        // índice global salía de rango y el resaltado (.kw-current) dejaba de
+        // existir. Aquí se conserva el texto tal cual (verificación K1).
+        const atWhitespaceBoundary =
+          /\s$/.test(currentChunkText) || /^\s/.test(sentence);
+        if (
+          currentChunkText.length + sentence.length > maxChars &&
+          currentChunkText.length > 0 &&
+          atWhitespaceBoundary
+        ) {
+          // Flush current chunk (sin trim: el texto es un slice fiel del párrafo).
           const chunk: TTSChunk = {
             id: chunkId(currentChunkText, voiceId, job.speed, engine),
             paragraphId: job.paragraphId,
             chunkIndex: currentChunkIndex,
-            text: currentChunkText.trim(),
+            text: currentChunkText,
             voiceId,
             engine,
             speed: job.speed,
@@ -77,7 +91,7 @@ export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
           globalWordIndex++;
         }
 
-        currentChunkText += (currentChunkText ? ' ' : '') + sentence;
+        currentChunkText += sentence;
       }
 
       // Flush remaining
@@ -86,7 +100,7 @@ export function chunkParagraph(job: ChunkJob): AgentResult<ChunkPlan> {
           id: chunkId(currentChunkText, voiceId, job.speed, engine),
           paragraphId: job.paragraphId,
           chunkIndex: currentChunkIndex,
-          text: currentChunkText.trim(),
+          text: currentChunkText, // lossless: sin trim, slice fiel del párrafo
           voiceId,
           engine,
           speed: job.speed,
