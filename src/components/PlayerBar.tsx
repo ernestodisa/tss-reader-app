@@ -257,26 +257,49 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     playerAgent.setExpectingMore(expectingMoreRef.current > 0);
   };
 
-  // ── Fix (1): pre-calentar al cache los chunks restantes del párrafo actual ──
-  // Cuando un párrafo empieza a sonar, dispara en paralelo la descarga (y
-  // caché) de TODOS sus chunks desde el próximo pendiente hasta el final. Así
-  // cada `queueUpcoming` posterior encuentra el chunk en cache (hit instantáneo)
-  // en vez de esperar latencia de red + síntesis — crítico a 2x donde el audio
-  // se consume el doble de rápido y el margen de anticipación se reduce.
-  // Fire-and-forget: el resultado real lo consume queueUpcoming/playChunk; aquí
-  // solo llenamos el cache. La generación gatea el trabajo obsoleto.
+  // ── Pre-calentar al cache los chunks restantes del párrafo ──────────────
+  // Cuando un párrafo empieza a sonar (o al encolar un chunk), descargar y
+  // cachear los chunks restantes con ANTELACIÓN, para que cada `queueUpcoming`
+  // posterior encuentre el chunk en cache (hit instantáneo) en vez de esperar
+  // latencia de red + síntesis — crítico a 2x donde el margen se reduce.
+  // Fire-and-forget: el resultado real lo consume queueUpcoming/playChunk;
+  // aquí solo llenamos el cache. La generación gatea el trabajo obsoleto.
+  //
+  // Auditoría GPT-5.6 Luna (hallazgos corregidos):
+  //  • ALTO: NO disparar TODOS los chunks en paralelo (ráfaga 429). Se limita
+  //    la concurrencia a WARM_CONCURRENCY POSTs simultáneos.
+  //  • MEDIO: NO escribir setParagraphTiming aquí — timingsByParagraph tiene
+  //    un solo slot por párrafo y una finalización fuera de orden sobrescribiría
+  //    los timings del chunk EN reproducción. El estado 'ready' lo escribe solo
+  //    el chunk realmente cargado (playChunkFromChain/chunkStartCallback).
+  //  • BAJO: warmCount solo cuenta éxitos (los fallos/429 no inflan el diag).
+  const WARM_CONCURRENCY = 3;
   const warmRemaining = (chain: ChunkChain, fromIndex: number): void => {
-    for (let i = fromIndex; i < chain.chunks.length; i++) {
-      const chunk = chain.chunks[i];
-      void fetchTTS(chunk).then((r) => {
-        // Solo contamos como útil si la generación y la cadena siguen vigentes;
-        // si no, el usuario ya se movió (el chunk no se reproducirá igual).
-        if (usePlaybackStore.getState().generationId === chain.gen && chainRef.current === chain) {
-          if (r.success) setParagraphTiming(chain.paragraph.id, { status: 'ready', timings: r.data.words });
-          chain.warmCount = (chain.warmCount || 0) + 1;
+    const jobs: TTSChunk[] = [];
+    for (let i = fromIndex; i < chain.chunks.length; i++) jobs.push(chain.chunks[i]);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < jobs.length) {
+        const i = cursor;
+        cursor += 1;
+        const chunk = jobs[i];
+        try {
+          const r = await fetchTTS(chunk);
+          if (
+            r.success &&
+            usePlaybackStore.getState().generationId === chain.gen &&
+            chainRef.current === chain
+          ) {
+            chain.warmCount = (chain.warmCount || 0) + 1;
+          }
+        } catch {
+          // Err del warm es best-effort; el path real reintenta con backoff.
         }
-      });
-    }
+      }
+    };
+    // Lanza un pool de WARM_CONCURRENCY workers concurrentes (no más).
+    const n = Math.min(WARM_CONCURRENCY, jobs.length);
+    for (let w = 0; w < n; w++) void worker();
   };
 
   const queueUpcoming = async (chain: ChunkChain): Promise<void> => {
