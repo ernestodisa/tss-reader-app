@@ -1,4 +1,5 @@
 import { WordTiming } from '../types';
+import { unlockAudio, primeAudioSession } from '../lib/ios-audio';
 import type {
   PlaybackEngine,
   WordChangeCallback,
@@ -171,6 +172,22 @@ export class MseEngine implements PlaybackEngine {
       this.audio.addEventListener('stalled', onStall);
     }
     return this.audio;
+  }
+
+  // Gemelo del PlayerAgent: el <audio> del stream también necesita el gesto en
+  // WebKit (iPad con MSE real) y la sesión 'playback' para ignorar el switch de
+  // silencio. Ver src/lib/ios-audio.ts.
+  private _unlocked = false;
+
+  unlock(): void {
+    const audio = this.getAudio();
+    if (this._unlocked) {
+      primeAudioSession();
+      return;
+    }
+    void unlockAudio(audio).then((ok) => {
+      if (ok) this._unlocked = true;
+    });
   }
 
   load(

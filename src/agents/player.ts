@@ -1,5 +1,6 @@
 import { WordTiming } from '../types';
 import { MseEngine } from './mse-player';
+import { unlockAudio, primeAudioSession } from '../lib/ios-audio';
 import type {
   PlaybackEngine,
   WordChangeCallback,
@@ -53,6 +54,9 @@ export class PlayerAgent implements PlaybackEngine {
   private queuedTimings: WordTiming[] = [];
   private queuedMeta: QueuedChunkMeta | null = null;
 
+  // iOS: true cuando el <audio> ya fue activado por un gesto (clip mudo).
+  private _unlocked = false;
+
   private getAudio(): HTMLAudioElement {
     if (!this.audio) {
       this.audio = new Audio();
@@ -62,6 +66,23 @@ export class PlayerAgent implements PlaybackEngine {
       this.audio.volume = this._volume;
     }
     return this.audio;
+  }
+
+  /**
+   * iOS: activa el elemento con el gesto del usuario. Sin esto, el `play()`
+   * real (que ocurre DESPUÉS del fetch TTS, ya fuera del gesto) es rechazado
+   * por Safari con NotAllowedError y la app queda en ▶ sin leer. Ver
+   * src/lib/ios-audio.ts. Idempotente y síncrono en su parte crítica.
+   */
+  unlock(): void {
+    const audio = this.getAudio();
+    if (this._unlocked) {
+      primeAudioSession();
+      return;
+    }
+    void unlockAudio(audio).then((ok) => {
+      if (ok) this._unlocked = true;
+    });
   }
 
   /** Carga un párrafo: partes MP3 crudas (stream MPEG concatenable) + timings. */
@@ -237,6 +258,8 @@ export class PlayerAgent implements PlaybackEngine {
     this.chunkStartCallback = null;
     this.playBlockedCallback = null;
     this.audio = null;
+    // El elemento se descarta: el próximo necesita su propio gesto.
+    this._unlocked = false;
   }
 
   private _startWordTracking(): void {

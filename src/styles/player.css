@@ -396,3 +396,25 @@
 .fp-player {
   bottom: max(8px, env(safe-area-inset-bottom, 0px));
 }
+
+/* ── Aviso de audio bloqueado por el navegador ────────────────────────────
+   El play() rechazado (iOS sin gesto válido, autoplay) dejaba la UI en pausa
+   sin explicación: el usuario veía ▶ y "no leía". Se muestra por encima de la
+   píldora, sin alterar el layout del cluster de transporte. */
+.fp-blocked {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(92vw, 460px);
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md, 12px);
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}

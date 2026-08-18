@@ -12,6 +12,13 @@ import './styles/global.css';
 import { initAutoSync } from './lib/auto-sync';
 import { idbCacheStore } from './lib/indexeddb-cache';
 import { docsStore } from './lib/library-docs';
+import { primeAudioSession } from './lib/ios-audio';
+
+// iOS 16.4+: declarar la sesión de audio como 'playback' desde el arranque. Sin
+// esto el <audio> de la app cae en la categoría "ambient" y el interruptor de
+// silencio del iPhone lo enmudece por completo (el karaoke avanza y no se oye
+// nada), además de cortarse antes en background. No-op fuera de WebKit.
+primeAudioSession();
 
 // Migra IndexedDB (cache TTS + contenidos de libros) al namespace nuevo. NO
 // bloquea el primer render (M14): corre EN PARALELO y los dos puntos de lectura
