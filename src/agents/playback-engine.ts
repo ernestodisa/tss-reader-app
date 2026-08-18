@@ -25,6 +25,15 @@ export type PlayBlockedCallback = () => void;
 // El parámetro `durationMs` es opcional: el motor clásico lo ignora; el MSE lo
 // acepta como pista (aunque deriva la duración real de los rangos `buffered`).
 export interface PlaybackEngine {
+  /**
+   * iOS: activa el elemento <audio> con el gesto del usuario (clip mudo) y
+   * declara la sesión de audio como 'playback'. DEBE llamarse SÍNCRONAMENTE
+   * dentro del handler del toque, antes de cualquier `await`: el `play()` real
+   * llega después del fetch TTS y Safari lo rechazaría por falta de gesto.
+   * Idempotente; no-op cuando el elemento ya está desbloqueado o ya tiene
+   * contenido real cargado.
+   */
+  unlock(): void;
   /** Carga un párrafo: reinicia el stream y arranca por el primer chunk. */
   load(paragraphId: string, mp3Parts: ArrayBuffer[], timings: WordTiming[], durationMs?: number): void;
   play(): void;

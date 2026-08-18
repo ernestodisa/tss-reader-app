@@ -45,6 +45,10 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   // o control) lo reaparece y reinicia el contador. En pausa permanece siempre
   // visible (no tiene sentido ocultar los controles si no está reproduciendo).
   const [controlsHidden, setControlsHidden] = useState(false);
+  // Aviso visible cuando el navegador RECHAZA el play (iOS sin gesto válido).
+  // Antes esto era mudo: la UI volvía a pausa y el usuario solo veía ▶ sin
+  // sonido, sin forma de saber qué pasaba.
+  const [playBlocked, setPlayBlocked] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const kickHideTimer = () => {
@@ -432,6 +436,13 @@ export function PlayerBar({ doc }: PlayerBarProps) {
 
   // Handle play/pause toggle
   const handlePlayPause = async () => {
+    // iOS (bug de campo 2026-08: "le doy ▶ y no lee" en iPhone, bien en Android).
+    // El play() real ocurre DESPUÉS del fetch TTS, ya fuera del gesto, y Safari
+    // lo rechaza salvo que el <audio> haya sido activado DENTRO del gesto. Esto
+    // debe ir ANTES de cualquier await de esta función; también fija la sesión
+    // de audio como 'playback' para que el switch de silencio no lo enmudezca.
+    playerAgent.unlock();
+    setPlayBlocked(false);
     // M3: se lee isPlaying del store (no del closure de render) para que el
     // camino desde la Media Session distinga play de pause con el estado vigente,
     // sin depender de que el efecto se haya re-registrado. En el onClick del JSX
@@ -492,6 +503,9 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   // de generación. Reset del contador de saltos consecutivos: es un tramo nuevo.
   const handleNext = () => {
     playerAgent.fullStop();
+    // iOS: el gesto vigente es ESTE toque; el play() llega tras el fetch TTS.
+    // Va DESPUÉS del fullStop para que este no aborte el clip de desbloqueo.
+    playerAgent.unlock();
     usePlaybackStore.getState().bumpGeneration();
     consecutiveSkipsRef.current = 0;
     nextParagraph(doc);
@@ -511,6 +525,9 @@ export function PlayerBar({ doc }: PlayerBarProps) {
 
   const handlePrev = () => {
     playerAgent.fullStop();
+    // iOS: el gesto vigente es ESTE toque; el play() llega tras el fetch TTS.
+    // Va DESPUÉS del fullStop para que este no aborte el clip de desbloqueo.
+    playerAgent.unlock();
     usePlaybackStore.getState().bumpGeneration();
     consecutiveSkipsRef.current = 0;
     prevParagraph(doc);
@@ -531,6 +548,9 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   // capítulo destino).
   const handleNextChapter = () => {
     playerAgent.fullStop();
+    // iOS: el gesto vigente es ESTE toque; el play() llega tras el fetch TTS.
+    // Va DESPUÉS del fullStop para que este no aborte el clip de desbloqueo.
+    playerAgent.unlock();
     usePlaybackStore.getState().bumpGeneration();
     consecutiveSkipsRef.current = 0;
     nextChapter(doc);
@@ -547,6 +567,9 @@ export function PlayerBar({ doc }: PlayerBarProps) {
 
   const handlePrevChapter = () => {
     playerAgent.fullStop();
+    // iOS: el gesto vigente es ESTE toque; el play() llega tras el fetch TTS.
+    // Va DESPUÉS del fullStop para que este no aborte el clip de desbloqueo.
+    playerAgent.unlock();
     usePlaybackStore.getState().bumpGeneration();
     consecutiveSkipsRef.current = 0;
     prevChapter(doc);
@@ -709,6 +732,7 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     // — el siguiente gesto o el control de Media Session reanudan.
     playerAgent.setPlayBlockedCallback(() => {
       usePlaybackStore.getState().pause();
+      setPlayBlocked(true);
     });
 
     playerAgent.setErrorCallback(() => {
@@ -817,6 +841,13 @@ export function PlayerBar({ doc }: PlayerBarProps) {
           Cap +
         </button>
       </div>
+
+      {playBlocked && (
+        <div className="fp-blocked" role="status">
+          El navegador bloqueó el audio. Toca ▶ otra vez; si sigue mudo, revisa el
+          interruptor de silencio del iPhone y el volumen.
+        </div>
+      )}
 
       <div className="fp-wave" aria-hidden="true">
         {WAVE_BARS.map((h, i) => (

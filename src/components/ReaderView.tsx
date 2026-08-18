@@ -355,6 +355,9 @@ export function ReaderView() {
       setDetached(false);
       // Corta el audio en curso antes de reposicionar.
       playerAgent.fullStop();
+      // iOS: el toque en el párrafo es el gesto que habilita el audio; la
+      // recarga del párrafo llega después del fetch TTS, ya sin gesto vigente.
+      playerAgent.unlock();
       usePlaybackStore.getState().seekToParagraph(chapterIndex, i);
       // seekToParagraph resetea posición y bumpea generación pero NO toca
       // isPlaying. Reafirmamos la intención: seguir sonando o quedar en pausa.
@@ -368,6 +371,7 @@ export function ReaderView() {
   const handleChapterSelect = useCallback((idx: number) => {
     const wasPlaying = usePlaybackStore.getState().isPlaying;
     playerAgent.fullStop();
+    playerAgent.unlock(); // iOS: activar el <audio> dentro del gesto (ver PlayerBar)
     usePlaybackStore.getState().seekToParagraph(idx, 0);
     if (wasPlaying) usePlaybackStore.getState().play();
     else usePlaybackStore.getState().pause();
