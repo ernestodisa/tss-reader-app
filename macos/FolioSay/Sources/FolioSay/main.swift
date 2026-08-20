@@ -28,6 +28,13 @@ if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--say" {
     MainActor.assumeIsolated {
         let player = Player()
         var started = false
+        // El karaoke también en --say: es la única manera de VER el panel sin
+        // hotkey ni Accesibilidad (QA visual con screencapture).
+        let karaoke = KaraokePanel()
+        player.onProgress = { index, text, fraction in
+            if !karaoke.isVisible { karaoke.showNear() }
+            karaoke.update(chunkIndex: index, text: text, fraction: fraction)
+        }
         player.onStateChange = { state in
             print("estado: \(state)")
             switch state {
@@ -40,10 +47,16 @@ if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--say" {
             }
         }
         player.play(text: text)
-        // Retener el player mientras corre el run loop.
+        // Retener player y panel mientras corre el run loop.
         objc_setAssociatedObject(NSApplication.shared, "foliosay.player", player, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(NSApplication.shared, "foliosay.karaoke", karaoke, .OBJC_ASSOCIATION_RETAIN)
     }
-    RunLoop.main.run()
+    // Run loop de NSApplication (no RunLoop.main a secas): sin él los NSPanel
+    // no se dibujan y el QA visual del karaoke no vería nada.
+    MainActor.assumeIsolated {
+        NSApp.setActivationPolicy(.accessory)
+        NSApp.run()
+    }
 }
 
 // El top-level code no está aislado al main actor para el compilador, aunque

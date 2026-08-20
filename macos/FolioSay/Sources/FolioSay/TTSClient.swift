@@ -23,6 +23,15 @@ enum TTSError: LocalizedError {
     }
 }
 
+/// Audio de un chunk + su duración real según el worker (header X-Duration,
+/// en ms). La duración importa para el karaoke: los MP3 de Edge no siempre
+/// traen duración legible y AVPlayerItem puede reportarla indefinida — sin
+/// este dato la fracción de progreso se congela.
+struct ChunkAudio {
+    let data: Data
+    let durationMs: Double?
+}
+
 struct TTSClient {
     let config: Config
 
@@ -39,7 +48,7 @@ struct TTSClient {
         return isId3 || isMpegSync
     }
 
-    func fetchAudio(for chunk: TTSChunk) async throws -> Data {
+    func fetchAudio(for chunk: TTSChunk) async throws -> ChunkAudio {
         var rateRetries = 0, audioRetries = 0, netRetries = 0
 
         while true {
@@ -100,7 +109,8 @@ struct TTSClient {
                 continue
             }
 
-            return data
+            let durationMs = resp.value(forHTTPHeaderField: "X-Duration").flatMap(Double.init)
+            return ChunkAudio(data: data, durationMs: (durationMs ?? 0) > 0 ? durationMs : nil)
         }
     }
 }

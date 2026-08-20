@@ -23,10 +23,10 @@ final class KaraokePanel {
 
     // MARK: - Constantes de layout
 
-    private static let width: CGFloat = 520
-    private static let padding: CGFloat = 18
-    private static let fontSize: CGFloat = 15
-    private static let lineSpacing: CGFloat = 5
+    private static let width: CGFloat = 560
+    private static let padding: CGFloat = 22
+    private static let fontSize: CGFloat = 17
+    private static let lineSpacing: CGFloat = 6
     /// El chunk máximo son ~250 chars; a 520pt de ancho eso cabe en ~4 líneas.
     /// Topamos en 5 para que un texto raro no crezca sin control.
     private static let maxLines = 5
@@ -101,7 +101,9 @@ final class KaraokePanel {
             width: KaraokePanel.width - KaraokePanel.padding * 2,
             height: 40
         )
-        label.autoresizingMask = [.width, .height]
+        // Sin autoresizing: resizeToFit() administra el frame a mano y la
+        // máscara peleaba con él (el label se iba encogiendo en cada resize).
+        label.autoresizingMask = []
         effect.addSubview(label)
 
         panel.contentView = effect
@@ -260,13 +262,17 @@ final class KaraokePanel {
     /// origin, si no el panel "salta" cada vez que cambia el número de líneas.
     private func resizeToFit(_ attributed: NSAttributedString) {
         let textWidth = KaraokePanel.width - KaraokePanel.padding * 2
-        let bounds = attributed.boundingRect(
-            with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        let lineHeight = KaraokePanel.fontSize + KaraokePanel.lineSpacing + 4
-        let maxTextHeight = lineHeight * CGFloat(KaraokePanel.maxLines)
-        let textHeight = min(ceil(bounds.height), maxTextHeight)
+        // Medir con el CELL del propio NSTextField, no con boundingRect: el
+        // cell conoce su wrapping real y boundingRect se quedaba corto — el
+        // panel salía de una línea aplastada (mordió en campo el primer día).
+        let measured = label.cell?.cellSize(
+            forBounds: NSRect(x: 0, y: 0, width: textWidth, height: .greatestFiniteMagnitude)
+        ).height ?? 0
+        let lineHeight = KaraokePanel.fontSize * 1.35 + KaraokePanel.lineSpacing
+        let maxTextHeight = ceil(lineHeight * CGFloat(KaraokePanel.maxLines))
+        // Piso de una línea real: aunque la medición fallara, el panel jamás
+        // vuelve a verse como una rendija.
+        let textHeight = min(max(ceil(measured), ceil(lineHeight)), maxTextHeight)
         let newHeight = textHeight + KaraokePanel.padding * 2
 
         var frame = panel.frame

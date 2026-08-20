@@ -43,6 +43,10 @@ final class Player: NSObject {
     private var timeObserver: Any?
     /// Texto de cada chunk del plan en curso (para el karaoke).
     private var chunkTexts: [String] = []
+    /// Duración real por chunk según el worker (X-Duration, en segundos).
+    /// Fuente de verdad del progreso: AVPlayerItem puede reportar duración
+    /// indefinida en los MP3 de Edge y el karaoke se congelaba.
+    private var chunkDurations: [Int: Double] = [:]
 
     private let stateDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".cache/folio-say")
@@ -102,9 +106,9 @@ final class Player: NSObject {
         downloadTask = Task { [weak self] in
             do {
                 for (i, chunk) in chunks.enumerated() {
-                    let data = try await client.fetchAudio(for: chunk)
+                    let audio = try await client.fetchAudio(for: chunk)
                     try Task.checkCancellation()
-                    await self?.enqueue(data: data, index: i)
+                    await self?.enqueue(audio: audio, index: i)
                 }
                 await MainActor.run { self?.downloadFinished = true }
             } catch is CancellationError {
@@ -137,6 +141,7 @@ final class Player: NSObject {
         if let timeObserver { queuePlayer?.removeTimeObserver(timeObserver) }
         timeObserver = nil
         chunkTexts = []
+        chunkDurations = [:]
         queuePlayer?.pause()
         queuePlayer?.removeAllItems()
         queuePlayer = nil
@@ -163,8 +168,10 @@ final class Player: NSObject {
         player.rate = Float(liveSpeed / requestedSpeed)
     }
 
-    private func enqueue(data: Data, index: Int) {
+    private func enqueue(audio: ChunkAudio, index: Int) {
         guard let player = queuePlayer else { return }
+        let data = audio.data
+        if let ms = audio.durationMs { chunkDurations[index] = ms / 1000 }
         try? FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true,
                                                  attributes: [.posixPermissions: 0o700])
         // Prefijo propio para no chocar con los chunk-N.mp3 del CLI v0.
@@ -210,8 +217,11 @@ final class Player: NSObject {
                       let item = player.currentItem,
                       let index = self.itemIndex[ObjectIdentifier(item)],
                       index < self.chunkTexts.count else { return }
-                let duration = item.duration.seconds
-                guard duration.isFinite, duration > 0 else { return }
+                // Preferir la duración del worker; el item es solo fallback.
+                let itemDuration = item.duration.seconds
+                let duration = self.chunkDurations[index]
+                    ?? ((itemDuration.isFinite && itemDuration > 0) ? itemDuration : 0)
+                guard duration > 0 else { return }
                 let fraction = min(1, max(0, time.seconds / duration))
                 self.onProgress?(index, self.chunkTexts[index], fraction)
             }
