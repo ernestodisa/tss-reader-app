@@ -267,10 +267,30 @@ export class MseEngine implements PlaybackEngine {
     if (!audio || !this._hasCurrent) return;
     this._intentionallyPaused = false;
     // Gemelo del motor clásico: un rechazo se enruta a playBlockedCallback
-    // (pausa honesta) en vez de tragarse en silencio.
-    void audio.play().catch(() => this.playBlockedCallback?.());
+    // (pausa honesta) en vez de tragarse en silencio; y un play() que RESUELVE
+    // sin reanudar (interrupción activa de WebKit, p.ej. iPad con MSE real) se
+    // detecta con la verificación diferida y cae a la misma pausa honesta.
+    // Nota: un underrun NO da falso positivo aquí — el estancamiento por falta
+    // de datos deja `paused === false` (el elemento queda en `waiting`).
+    void audio.play().then(
+      () => this.scheduleResumeVerification(),
+      () => this.playBlockedCallback?.(),
+    );
     this.startTracking();
     this.resumeDeferredFlush();
+  }
+
+  /** Gemelo de scheduleResumeVerification del motor clásico: si tras ~1.5s el
+   *  elemento sigue pausado sin pausa propia, pausa honesta motor + UI. */
+  private scheduleResumeVerification(): void {
+    window.setTimeout(() => {
+      const a = this.audio;
+      if (!a || this._intentionallyPaused || !this._hasCurrent) return;
+      if (a.paused) {
+        this.pause();
+        this.playBlockedCallback?.();
+      }
+    }, 1500);
   }
 
   /**
@@ -452,7 +472,10 @@ export class MseEngine implements PlaybackEngine {
       // usuario), un `play()` lo reanuda. Con `paused===false` ya estaba
       // sonando (el estancamiento no pausa) y play() es no-op inofensivo; solo
       // rescata el caso en que el motor sí dejó el elemento pausado por stall.
-      if (this._hasCurrent && this.audio && !this.audio.paused) {
+      // El guard es la INTENCIÓN (auditoría 2026-08-20: decía `!audio.paused`,
+      // que ejecutaba el play() solo en el caso no-op y dejaba muerto el
+      // rescate documentado; la pausa del usuario la protege el flag).
+      if (this._hasCurrent && this.audio && !this._intentionallyPaused) {
         void this.audio.play().catch(() => {
           /* sin datos suficientes aún o sin gesto; reintenta al próximo append */
         });

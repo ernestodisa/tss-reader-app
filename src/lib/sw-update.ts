@@ -10,8 +10,14 @@ import { registerSW } from 'virtual:pwa-register';
 type Listener = () => void;
 
 let needRefresh = false;
+let sessionExpired = false;
 const listeners = new Set<Listener>();
 let updateFn: ((reloadPage?: boolean) => Promise<void>) | null = null;
+
+// Chequeo ACTIVO de updates (auditoría 2026-08-20): en modo 'prompt' sin esto,
+// el update check solo corría en el registro inicial — una PWA instalada podía
+// quedarse en una versión vieja indefinidamente sin mostrar nunca el toast.
+const SW_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1h
 
 export function initSwUpdate(): void {
   if (updateFn) return; // idempotente
@@ -20,6 +26,43 @@ export function initSwUpdate(): void {
       onNeedRefresh() {
         needRefresh = true;
         listeners.forEach((l) => l());
+      },
+      onRegisteredSW(swUrl, registration) {
+        if (!registration) return;
+        const check = async () => {
+          if (!navigator.onLine) return;
+          // Fetch explícito ANTES de registration.update(): update() no expone
+          // la respuesta HTTP, y detrás de Cloudflare Access un sw.js con la
+          // sesión OTP expirada responde 302 → login, con lo que el update
+          // check fallaba EN SILENCIO para siempre. redirect:'manual' convierte
+          // ese 302 en un `opaqueredirect` observable → se avisa a la UI
+          // ("sesión expirada") en vez de fallar mudo.
+          let resp: Response | null = null;
+          try {
+            resp = await fetch(swUrl, { cache: 'no-store', redirect: 'manual' });
+          } catch {
+            return; // sin red / fallo transitorio: reintenta el próximo ciclo
+          }
+          if (resp.status === 200) {
+            if (sessionExpired) {
+              sessionExpired = false; // la sesión volvió: retira el aviso
+              listeners.forEach((l) => l());
+            }
+            await registration.update().catch(() => {
+              /* update check fallido: reintenta el próximo ciclo */
+            });
+          } else if (resp.type === 'opaqueredirect' || (resp.status >= 300 && resp.status < 400)) {
+            if (!sessionExpired) {
+              sessionExpired = true;
+              listeners.forEach((l) => l());
+            }
+          }
+        };
+        void check(); // al arrancar: detecta desde ya una sesión expirada
+        setInterval(() => void check(), SW_CHECK_INTERVAL_MS);
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') void check();
+        });
       },
     });
   } catch {
@@ -35,6 +78,13 @@ export function subscribeSwUpdate(l: Listener): () => void {
 
 export function hasUpdate(): boolean {
   return needRefresh;
+}
+
+/** La sesión de Cloudflare Access expiró (el chequeo de sw.js recibe 302 al
+ *  login): la PWA no puede ni actualizar ni hablar con la API hasta re-entrar.
+ *  La UI debe ofrecer recargar — la navegación pasa por el login de Access. */
+export function sessionNeedsLogin(): boolean {
+  return sessionExpired;
 }
 
 /** ¿Hay un actualizador real disponible? Si es null, el botón "actualizar"

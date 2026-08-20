@@ -206,8 +206,31 @@ export class PlayerAgent implements PlaybackEngine {
     // Si iOS rechaza la reanudación (sin gesto vigente), se enruta a
     // playBlockedCallback para que la UI quede en pausa honesta — igual que
     // play(); antes se tragaba el rechazo y el store seguía "sonando" en falso.
-    void audio.play().catch(() => this.playBlockedCallback?.());
+    // Y si la promesa RESUELVE sin reanudar de verdad (semántica de interrupción
+    // de WebKit: durante una interrupción activa play() puede resolver con el
+    // elemento aún pausado), la verificación diferida lo detecta y cae a la
+    // misma pausa honesta — a nivel motor, para cancelar además el auto-resume
+    // que WebKit deja encolado para el fin de la interrupción. El delay corto
+    // aprovecha la ventana de CPU que iOS da tras el comando de Media Session.
+    void audio.play().then(
+      () => this.scheduleResumeVerification(),
+      () => this.playBlockedCallback?.(),
+    );
     this._startWordTracking();
+  }
+
+  /** Verificación diferida post-resume: si tras ~1.5s el elemento sigue pausado
+   *  sin que nadie pidiera pausa, el play() "exitoso" fue un no-op de
+   *  interrupción → pausa honesta (motor + UI vía playBlockedCallback). */
+  private scheduleResumeVerification(): void {
+    window.setTimeout(() => {
+      const a = this.audio;
+      if (!a || this._intentionallyPaused || !this._currentParagraphId) return;
+      if (a.paused) {
+        this.pause();
+        this.playBlockedCallback?.();
+      }
+    }, 1500);
   }
 
   setVolume(volume: number): void {

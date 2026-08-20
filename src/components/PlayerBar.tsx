@@ -683,11 +683,23 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     if (!doc) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const recover = () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible') {
+        // Regreso a background con un chequeo pendiente: cancelarlo. Sin esto
+        // el timer podía disparar resume()/recarga ya en background y rematar
+        // en pausa honesta (auditoría 2026-08-20).
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        return;
+      }
       // Delay corto: los callbacks de red que iOS congeló se procesan al
       // despertar; si alguno reanuda solo, este chequeo lo ve y no interviene.
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
+        // Cinturón además del clear de arriba: si volvimos a hidden por un
+        // camino sin visibilitychange, no actuar en background.
+        if (document.visibilityState !== 'visible') return;
         const st = usePlaybackStore.getState();
         if (!st.isPlaying || st.isBuffering) return;
         if (playerAgent.isPlayingAudio()) return;
@@ -832,16 +844,23 @@ export function PlayerBar({ doc }: PlayerBarProps) {
       setPlayBlocked(true);
     });
 
-    // Interrupción del SISTEMA (llamada entrante, Siri, otra app tomó el
-    // audio): iOS pausa el <audio> por fuera mientras el store cree que
-    // seguimos sonando. Intento único de reanudar DENTRO del evento — la
-    // sesión 'playback' sigue activa unos segundos tras la interrupción y el
-    // elemento ya estaba desbloqueado, así que suele colar. Si lo rechaza,
-    // resume() enruta a playBlockedCallback → pausa honesta (el watchdog de
-    // visibilitychange retoma al volver a la app).
+    // Pausa EXTERNA del elemento. Llega por interrupción del sistema (llamada,
+    // Siri, otra app tomó el audio) pero TAMBIÉN por la pausa del USUARIO
+    // ejecutada por el SO — desconectar AirPods/cambio de ruta pausa el
+    // elemento directamente SIN pasar por Media Session — y desde el evento
+    // `pause` son indistinguibles. Un auto-resume aquí pelea contra la pausa
+    // del usuario (reanuda por la bocina al quitarse los audífonos), así que
+    // la respuesta es pausa HONESTA: pause() a nivel MOTOR (fija
+    // _intentionallyPaused y cancela el auto-resume que WebKit deja encolado
+    // para el fin de la interrupción — sin esto queda el zombi inverso: audio
+    // sonando con la UI en pausa) + store en pausa, sin banner de bloqueo. El
+    // ▶ de la pantalla de bloqueo (Media Session play → handlePlayPause →
+    // resume) reanuda cuando el usuario quiera; al bajar isPlaying, el
+    // watchdog de foreground tampoco interviene.
     playerAgent.setSystemPauseCallback(() => {
       if (!usePlaybackStore.getState().isPlaying) return;
-      playerAgent.resume();
+      playerAgent.pause();
+      usePlaybackStore.getState().pause();
     });
 
     playerAgent.setErrorCallback(() => {

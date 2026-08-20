@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { useSyncExternalStore } from 'react';
-import { subscribeSwUpdate, hasUpdate, applyUpdate, canApplyUpdate } from '../lib/sw-update';
+import {
+  subscribeSwUpdate,
+  hasUpdate,
+  applyUpdate,
+  canApplyUpdate,
+  sessionNeedsLogin,
+} from '../lib/sw-update';
 import { IconClose, IconUp } from './icons';
 
 /**
@@ -15,8 +21,37 @@ import { IconClose, IconUp } from './icons';
  */
 export function UpdateToast() {
   const show = useSyncExternalStore(subscribeSwUpdate, hasUpdate);
+  const expired = useSyncExternalStore(subscribeSwUpdate, sessionNeedsLogin);
   const [dismissed, setDismissed] = useState(false);
+  const [expiredDismissed, setExpiredDismissed] = useState(false);
   const [failed, setFailed] = useState(false);
+
+  // Sesión de Access expirada (detectada por el chequeo de sw.js): sin
+  // re-entrar no llegan ni updates ni API. Recargar navega → Access intercepta
+  // → login → de vuelta con sesión fresca. El aviso de versión nueva tiene
+  // prioridad si ambos aplican (aplicar el update también recarga).
+  if ((!show || dismissed) && expired && !expiredDismissed) {
+    return (
+      <div className="update-toast" role="status">
+        <button
+          type="button"
+          className="update-toast-action"
+          onClick={() => window.location.reload()}
+        >
+          <IconUp /> Tu sesión expiró — toca para volver a entrar
+        </button>
+        <button
+          type="button"
+          className="update-toast-close"
+          onClick={() => setExpiredDismissed(true)}
+          aria-label="Descartar aviso de sesión expirada"
+          title="Descartar (reaparece al reabrir la app)"
+        >
+          <IconClose />
+        </button>
+      </div>
+    );
+  }
 
   if (!show || dismissed) return null;
 

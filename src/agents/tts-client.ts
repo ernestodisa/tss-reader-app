@@ -46,6 +46,9 @@ const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'http://localhost:8787';
 // so that cache hits can return pristine audio bytes without re-decoding.
 const rawAudioCache = new TieredCache();
 const RAW_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+// Tope duro por POST de TTS: un chunk pesa cientos de KB a lo sumo, así que
+// 30s es generoso; ver el comentario del timeout en fetchTTS.
+const TTS_FETCH_TIMEOUT_MS = 30_000;
 
 interface RawAudioEntry {
   audio: ArrayBuffer;
@@ -121,6 +124,16 @@ export async function fetchTTS(
   let entry = inflight.get(chunk.id);
   if (!entry) {
     const controller = new AbortController();
+    // Tope duro de 30s al POST (auditoría 2026-08-20). Sin él, un fetch
+    // congelado (p.ej. red suspendida por iOS en background) no settlea NUNCA:
+    // el dedupe une cada reintento a la MISMA promesa muerta (imposible de
+    // abortar: el caller de reproducción es un waiter que solo suelta al
+    // settlear), los slots del warm global se fugan de por vida y
+    // expectingMoreRef deja bloqueado el watchdog de foreground. El abort
+    // dispara el catch de red → error recuperable → reintento con fetch FRESCO.
+    // setTimeout + abort() en vez de AbortSignal.timeout/any: ambos faltan en
+    // iOS ≤17.3 (patrón pdfjs: ningún built-in nuevo sin guard).
+    const timeoutId = setTimeout(() => controller.abort(), TTS_FETCH_TIMEOUT_MS);
     const created: InflightFetch = {
       promise: fetchTTSFromNetwork(chunk, controller.signal),
       controller,
@@ -130,6 +143,7 @@ export async function fetchTTS(
     // La entrada sale del mapa al terminar (éxito, error o abort): el próximo
     // fetch del mismo chunk arranca fresco y nunca reusa una promesa muerta.
     void created.promise.finally(() => {
+      clearTimeout(timeoutId);
       if (inflight.get(chunk.id) === created) inflight.delete(chunk.id);
     });
     entry = created;
