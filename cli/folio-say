@@ -1,0 +1,96 @@
+#!/bin/bash
+# Wrapper de folio-say.
+#
+# El CLI importa el chunker REAL del repo (src/agents/chunker.ts) y los imports
+# del repo no llevan extensión, así que el type-stripping nativo de Node no los
+# resuelve. La ruta que sí funciona es bundlear con esbuild y ejecutar el bundle.
+# El bundle se construye la primera vez (o tras un `rm -rf dist/`) y se reusa
+# después: un atajo de teclado tiene que arrancar rápido.
+set -euo pipefail
+
+# Resolver symlinks: install.sh enlaza este script en ~/.local/bin, y desde ahí
+# hay que llegar igual al directorio real de cli/.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  # `if` y no `[[ … ]] && …`: bajo `set -e` una AND-list que termina en falso es
+  # una fuente clásica de salidas silenciosas dentro de un bucle.
+  if [[ "$SOURCE" != /* ]]; then SOURCE="$DIR/$SOURCE"; fi
+done
+CLI_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+REPO_DIR="$(cd -P "$CLI_DIR/.." && pwd)"
+
+BUNDLE="$CLI_DIR/dist/folio-say.mjs"
+ESBUILD="$REPO_DIR/node_modules/.bin/esbuild"
+NODE_HINT="$HOME/.cache/folio-say/node-path"
+
+# ── Resolver node sin depender del PATH ─────────────────────────────────────
+# El camino principal de este CLI es un Quick Action de Automator, que corre bajo
+# launchd con un PATH mínimo (/usr/bin:/bin:/usr/sbin:/sbin). node instalado en
+# ~/.local/bin, Homebrew, nvm, volta o fnm NO está ahí: un `exec node` a secas
+# moría con "command not found" y el atajo simplemente "no hacía nada". Orden:
+# PATH (terminal normal) → ruta que registró install.sh → ubicaciones típicas.
+resolver_node() {
+  local candidato
+  if candidato="$(command -v node 2>/dev/null)" && [ -x "$candidato" ]; then
+    printf '%s\n' "$candidato"
+    return 0
+  fi
+  if [ -r "$NODE_HINT" ]; then
+    candidato="$(head -n 1 "$NODE_HINT")"
+    if [ -n "$candidato" ] && [ -x "$candidato" ]; then
+      printf '%s\n' "$candidato"
+      return 0
+    fi
+  fi
+  for candidato in \
+    "$HOME/.local/bin/node" \
+    /opt/homebrew/bin/node \
+    /usr/local/bin/node \
+    "$HOME/.volta/bin/node" \
+    "$HOME/.bun/bin/node"; do
+    if [ -x "$candidato" ]; then
+      printf '%s\n' "$candidato"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! NODE_BIN="$(resolver_node)"; then
+  echo "folio-say: no encontré 'node' en este entorno." >&2
+  echo "  Si lo tienes instalado, corre '$CLI_DIR/install.sh' desde tu terminal" >&2
+  echo "  habitual: registra la ruta de node para que el Quick Action la use." >&2
+  exit 1
+fi
+
+# ── Bundle ──────────────────────────────────────────────────────────────────
+# También se recompila si la fuente es más nueva que el bundle: editar
+# folio-say.ts y que "no pase nada" es una trampa cara de diagnosticar.
+# (Un cambio en src/ del repo NO se detecta aquí: para eso, borra dist/.)
+if [ ! -f "$BUNDLE" ] || [ "$CLI_DIR/folio-say.ts" -nt "$BUNDLE" ]; then
+  # esbuild se invoca por ruta directa (no `npx`): npx sin el paquete instalado
+  # se queda esperando un "Ok to proceed?" que en un atajo de teclado nadie ve
+  # ni puede contestar — el atajo se colgaría en silencio.
+  if [ ! -f "$ESBUILD" ]; then
+    echo "folio-say: falta esbuild en $REPO_DIR/node_modules." >&2
+    echo "  Corre 'npm install' en $REPO_DIR y vuelve a intentar." >&2
+    exit 1
+  fi
+  # Todo lo del build va a stderr: stdout queda limpio para la salida del CLI.
+  echo "folio-say: compilando el bundle..." >&2
+  mkdir -p "$CLI_DIR/dist"
+  (
+    cd "$CLI_DIR"
+    # El bin de esbuild es un script "#!/usr/bin/env node": se ejecuta CON el
+    # node ya resuelto, o heredaría el mismo problema de PATH.
+    "$NODE_BIN" "$ESBUILD" folio-say.ts \
+      --bundle \
+      --platform=node \
+      --format=esm \
+      --outfile=dist/folio-say.mjs
+  ) >&2
+fi
+
+exec "$NODE_BIN" "$BUNDLE" "$@"
