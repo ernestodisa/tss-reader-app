@@ -306,14 +306,21 @@ async function runSetup(): Promise<void> {
       'Si vas a usar solo el worker local (sin Access), déjalos vacíos.\n',
   );
 
-  const clientId = (
-    await preguntar(`CF-Access-Client-Id (opcional)${previo?.clientId ? ' [enter = conservar]' : ''}: `)
-  ).trim();
-  const clientSecret = (
+  // El dialog de Cloudflare muestra las credenciales en formato header
+  // ("CF-Access-Client-Id: xxx.access") y es natural pegar la línea completa —
+  // pasó en campo el primer día. Se tolera: si el valor trae el nombre del
+  // header como prefijo, se recorta y queda solo el valor.
+  const sinPrefijoHeader = (v: string): string =>
+    v.replace(/^CF-Access-Client-(Id|Secret)\s*:\s*/i, '').trim();
+
+  const clientId = sinPrefijoHeader(
+    await preguntar(`CF-Access-Client-Id (opcional)${previo?.clientId ? ' [enter = conservar]' : ''}: `),
+  );
+  const clientSecret = sinPrefijoHeader(
     await preguntar(
       `CF-Access-Client-Secret (opcional)${previo?.clientSecret ? ' [enter = conservar]' : ''}: `,
-    )
-  ).trim();
+    ),
+  );
 
   const voiceRaw = await ask(
     '\nVoz por defecto (dalia | jorge | aria | guy)',
