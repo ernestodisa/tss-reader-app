@@ -53,11 +53,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-echo "==> Firmando ad-hoc…"
-# La firma (aunque sea ad-hoc) le da identidad estable al bundle: sin ella,
-# TCC trata cada build como una app nueva y hay que volver a conceder
-# Accesibilidad en cada compilación.
-codesign --force --sign - --deep "$APP"
+# Identidad estable si existe (creada una vez en el llavero — ver README):
+# con ella TCC conserva el permiso de Accesibilidad entre recompilaciones.
+# La firma ad-hoc NO lo logra (su huella cambia en cada build y macOS trata
+# la app como nueva); es solo el fallback.
+IDENTITY="FolioSay Dev"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$IDENTITY"; then
+    echo "==> Firmando con \"$IDENTITY\"…"
+    codesign --force --sign "$IDENTITY" --deep "$APP"
+else
+    echo "==> Firmando ad-hoc (sin identidad \"$IDENTITY\"; Accesibilidad se pierde en cada build)…"
+    codesign --force --sign - --deep "$APP"
+fi
 
 echo "Listo: $APP"
 echo "Instala con:  cp -R \"$APP\" /Applications/   (o ábrelo aquí con: open \"$APP\")"
