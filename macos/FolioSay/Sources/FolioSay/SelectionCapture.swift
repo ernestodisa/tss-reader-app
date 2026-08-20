@@ -17,8 +17,13 @@ enum SelectionCapture {
 
     /// Devuelve la selección, o nil si no hay (o no hubo permiso). Síncrono con
     /// espera corta: se llama desde el handler del hotkey.
+    ///
+    /// prompt: false SIEMPRE aquí — el prompt del sistema abre Ajustes, y
+    /// pedirlo en cada atajo convertía cada pulsación en un viaje a Ajustes
+    /// (mordió en campo cuando una recompilación invalidó la entrada TCC).
+    /// El único prompt vive en el arranque de la app.
     static func grabSelection() -> String? {
-        guard ensureAccessibility(prompt: true) else { return nil }
+        guard ensureAccessibility(prompt: false) else { return nil }
 
         let pasteboard = NSPasteboard.general
         let before = pasteboard.changeCount

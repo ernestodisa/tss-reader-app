@@ -57,6 +57,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func readSelection() {
         errorResetTask?.cancel()
+        // Stop/reanudar no necesitan permiso: el atajo debe callar la lectura
+        // aunque Accesibilidad esté rota.
+        if player.isActive {
+            player.toggle(textProvider: { nil })
+            return
+        }
+        guard SelectionCapture.ensureAccessibility(prompt: false) else {
+            render(state: .error("Falta permiso de Accesibilidad — actívalo en Ajustes → Privacidad, o usa Leer portapapeles"))
+            scheduleErrorReset()
+            return
+        }
         player.toggle(textProvider: SelectionCapture.grabSelection)
     }
 
