@@ -20,8 +20,10 @@ echo "==> Armando $APP…"
 # Bundle desde cero: si quedaran restos de un build viejo, la firma ad-hoc
 # heredaría archivos que ya no corresponden.
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/FolioSay"
+# Ícono: la "f" de Folio adaptada a macOS (generado desde public/icon-512.png).
+cp "$HERE/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -36,6 +38,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <string>com.thestandardcurve.foliosay</string>
     <key>CFBundleExecutable</key>
     <string>FolioSay</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
