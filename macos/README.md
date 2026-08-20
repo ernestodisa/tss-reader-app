@@ -43,7 +43,7 @@ La app no aparece en el Dock: vive en la barra de menús (ícono de libro).
 
 ## Uso
 
-- Atajo global **⌃⌥⌘F**: lee la selección; si ya está leyendo, detiene; si está
+- Atajo global **⌃⌥⌘L**: lee la selección; si ya está leyendo, detiene; si está
   pausada, reanuda. Si otra app ya tiene tomado el atajo, el menú lo avisa y
   todo sigue disponible desde el menú.
 - Menú: pausar/reanudar/detener, submenú **Voz** (dalia, jorge, aria, guy) y

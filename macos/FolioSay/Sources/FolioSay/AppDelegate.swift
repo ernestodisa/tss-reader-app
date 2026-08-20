@@ -8,7 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let player = Player()
     private var hotKey: HotKey?
     /// Se refleja en el menú: sin hotkey la app sigue sirviendo por menú, pero
-    /// el usuario tiene que enterarse (otra app ya registró ⌃⌥⌘F).
+    /// el usuario tiene que enterarse (otra app ya registró ⌃⌥⌘L).
     private var hotKeyFailed = false
     /// Vuelve el ícono a idle tras un error; se cancela si algo nuevo pasa.
     private var errorResetTask: Task<Void, Never>?
@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let config = Config.load()
         let state = player.state
 
-        add(to: menu, title: "Leer selección (⌃⌥⌘F)", action: #selector(readSelection))
+        add(to: menu, title: "Leer selección (⌃⌥⌘L)", action: #selector(readSelection))
 
         switch state {
         case .playing:
@@ -176,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         status.isEnabled = false
         menu.addItem(status)
         if hotKeyFailed {
-            let warn = NSMenuItem(title: "Atajo ⌃⌥⌘F no disponible (otra app lo usa)",
+            let warn = NSMenuItem(title: "Atajo ⌃⌥⌘L no disponible (otra app lo usa)",
                                   action: nil, keyEquivalent: "")
             warn.isEnabled = false
             menu.addItem(warn)

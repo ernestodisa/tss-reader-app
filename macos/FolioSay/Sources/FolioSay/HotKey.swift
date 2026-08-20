@@ -5,14 +5,16 @@ import Foundation
 /// Accesibilidad (a diferencia de NSEvent.addGlobalMonitor) y el sistema
 /// entrega el evento aunque la app sea agente sin foco.
 ///
-/// Default ⌃⌥⌘F ("Folio"): los combos solo-⌘/⌘⌥ se los comen las apps
-/// (⌘⌥L = Descargas en Safari — mordió en campo con la v0).
+/// Default ⌃⌥⌘L: el MISMO atajo que usaba el Quick Action de la v0 — al
+/// unificar (2026-08-20) se le quitó el key_equivalent al servicio en pbs y
+/// la app heredó la L que Ernesto ya tiene en memoria muscular. Los combos
+/// solo-⌘/⌘⌥ se los comen las apps (⌘⌥L = Descargas en Safari — mordió en campo).
 final class HotKey {
     private var ref: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
     private let callback: () -> Void
 
-    init?(keyCode: UInt32 = UInt32(kVK_ANSI_F),
+    init?(keyCode: UInt32 = UInt32(kVK_ANSI_L),
           modifiers: UInt32 = UInt32(controlKey | optionKey | cmdKey),
           callback: @escaping () -> Void) {
         self.callback = callback
