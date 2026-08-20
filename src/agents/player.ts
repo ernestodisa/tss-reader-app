@@ -8,6 +8,7 @@ import type {
   ErrorCallback,
   ChunkStartCallback,
   PlayBlockedCallback,
+  SystemPauseCallback,
   QueuedChunkMeta,
 } from './playback-engine';
 
@@ -19,6 +20,7 @@ export type {
   ErrorCallback,
   ChunkStartCallback,
   PlayBlockedCallback,
+  SystemPauseCallback,
   QueuedChunkMeta,
 } from './playback-engine';
 
@@ -57,6 +59,14 @@ export class PlayerAgent implements PlaybackEngine {
   // iOS: true cuando el <audio> ya fue activado por un gesto (clip mudo).
   private _unlocked = false;
 
+  // Interrupciones del sistema (llamada/Siri/otra app): distinguir la pausa
+  // EXTERNA de la propia. El evento `pause` del elemento también acompaña al
+  // fin natural del chunk (ahí `ended` ya es true) y a nuestras paradas
+  // (pause/fullStop, marcadas con este flag); solo se reporta la pausa que no
+  // pedimos nosotros con contenido vivo.
+  private _intentionallyPaused = true;
+  private systemPauseCallback: SystemPauseCallback | null = null;
+
   private getAudio(): HTMLAudioElement {
     if (!this.audio) {
       this.audio = new Audio();
@@ -64,6 +74,12 @@ export class PlayerAgent implements PlaybackEngine {
       // iOS: reproducir inline (sin fullscreen).
       this.audio.setAttribute('playsinline', 'true');
       this.audio.volume = this._volume;
+      this.audio.addEventListener('pause', () => {
+        const a = this.audio;
+        if (!a) return;
+        if (this._intentionallyPaused || !this._currentParagraphId || a.ended) return;
+        this.systemPauseCallback?.();
+      });
     }
     return this.audio;
   }
@@ -112,6 +128,7 @@ export class PlayerAgent implements PlaybackEngine {
         this.queuedTimings = [];
         this.queuedMeta = null;
         audio.src = this.objectUrl;
+        this._intentionallyPaused = false;
         void audio.play().catch(() => this.playBlockedCallback?.());
         this._startWordTracking();
         this.chunkStartCallback?.(meta, this._timings);
@@ -143,6 +160,7 @@ export class PlayerAgent implements PlaybackEngine {
     if (!audio || !this._currentParagraphId) return;
     // Un rechazo (autoplay/background) ya no es silencioso: se notifica para
     // que la UI quede en pausa honesta en vez de "reproduciendo" mudo.
+    this._intentionallyPaused = false;
     void audio.play().catch(() => this.playBlockedCallback?.());
     this._startWordTracking();
   }
@@ -174,6 +192,7 @@ export class PlayerAgent implements PlaybackEngine {
   }
 
   pause(): void {
+    this._intentionallyPaused = true;
     this.audio?.pause();
     cancelAnimationFrame(this._rafId);
   }
@@ -183,7 +202,11 @@ export class PlayerAgent implements PlaybackEngine {
     // audio.play() reanuda incluso desde background en iOS.
     const audio = this.audio;
     if (!audio || !this._currentParagraphId) return;
-    void audio.play().catch(() => { /* sin gesto válido; se reintenta al tocar ▶ */ });
+    this._intentionallyPaused = false;
+    // Si iOS rechaza la reanudación (sin gesto vigente), se enruta a
+    // playBlockedCallback para que la UI quede en pausa honesta — igual que
+    // play(); antes se tragaba el rechazo y el store seguía "sonando" en falso.
+    void audio.play().catch(() => this.playBlockedCallback?.());
     this._startWordTracking();
   }
 
@@ -198,6 +221,7 @@ export class PlayerAgent implements PlaybackEngine {
 
   fullStop(): void {
     cancelAnimationFrame(this._rafId);
+    this._intentionallyPaused = true;
     if (this.audio) {
       // Desata onended/onerror ANTES de parar: un stop manual (next/prev/reload)
       // no debe disparar el end callback ni la recuperación de error (quitar el
@@ -236,6 +260,14 @@ export class PlayerAgent implements PlaybackEngine {
     this.playBlockedCallback = cb;
   }
 
+  setSystemPauseCallback(cb: SystemPauseCallback): void {
+    this.systemPauseCallback = cb;
+  }
+
+  isPlayingAudio(): boolean {
+    return !!this.audio && !this.audio.paused && !this.audio.ended && !!this._currentParagraphId;
+  }
+
   setEndCallback(cb: EndCallback): void {
     this.endCallback = cb;
   }
@@ -257,9 +289,11 @@ export class PlayerAgent implements PlaybackEngine {
     this.errorCallback = null;
     this.chunkStartCallback = null;
     this.playBlockedCallback = null;
+    this.systemPauseCallback = null;
     this.audio = null;
     // El elemento se descarta: el próximo necesita su propio gesto.
     this._unlocked = false;
+    this._intentionallyPaused = true;
   }
 
   private _startWordTracking(): void {

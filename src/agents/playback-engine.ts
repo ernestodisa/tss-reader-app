@@ -13,6 +13,9 @@ export interface QueuedChunkMeta {
 }
 export type ChunkStartCallback = (meta: QueuedChunkMeta, timings: WordTiming[]) => void;
 export type PlayBlockedCallback = () => void;
+/** Pausa INESPERADA del elemento (interrupción del sistema: llamada, Siri,
+ *  otra app tomó el audio). No se dispara en pausas iniciadas por la app. */
+export type SystemPauseCallback = () => void;
 
 // ── Interfaz de motor de reproducción ─────────────────────────────────────
 // Contrato ÚNICO que consume PlayerBar. Existen dos implementaciones:
@@ -61,4 +64,13 @@ export interface PlaybackEngine {
   setErrorCallback(cb: ErrorCallback): void;
   setChunkStartCallback(cb: ChunkStartCallback): void;
   setPlayBlockedCallback(cb: PlayBlockedCallback): void;
+  /**
+   * true si el <audio> está realmente sonando (no pausado ni terminado y con
+   * contenido cargado). Lo usa el watchdog de regreso a foreground: iOS puede
+   * suspender el JS en un hueco de silencio y la cadena muere con el store en
+   * isPlaying=true — al volver a visible, si esto es false, hay que retomar.
+   */
+  isPlayingAudio(): boolean;
+  /** Interrupción del sistema (ver SystemPauseCallback). */
+  setSystemPauseCallback(cb: SystemPauseCallback): void;
 }

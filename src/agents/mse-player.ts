@@ -7,6 +7,7 @@ import type {
   ErrorCallback,
   ChunkStartCallback,
   PlayBlockedCallback,
+  SystemPauseCallback,
   QueuedChunkMeta,
 } from './playback-engine';
 
@@ -102,6 +103,10 @@ export class MseEngine implements PlaybackEngine {
   private errorCallback: ErrorCallback | null = null;
   private chunkStartCallback: ChunkStartCallback | null = null;
   private playBlockedCallback: PlayBlockedCallback | null = null;
+  // Gemelo del motor clásico: distingue la pausa EXTERNA (interrupción del
+  // sistema) de la propia. Ver PlayerAgent._intentionallyPaused.
+  private _intentionallyPaused = true;
+  private systemPauseCallback: SystemPauseCallback | null = null;
 
   // Segmentos ya anexados (con offsets reales), y la cola de appends pendientes.
   private segments: Segment[] = [];
@@ -170,6 +175,15 @@ export class MseEngine implements PlaybackEngine {
       const onStall = () => this.endOnStall();
       this.audio.addEventListener('waiting', onStall);
       this.audio.addEventListener('stalled', onStall);
+      // Interrupción del sistema (llamada/Siri/otra app): el SO pausa el
+      // elemento sin pasar por nuestro pause(). Solo se reporta con contenido
+      // vivo y fuera de pausa propia; el fin natural llega con ended=true.
+      this.audio.addEventListener('pause', () => {
+        const a = this.audio;
+        if (!a) return;
+        if (this._intentionallyPaused || !this._hasCurrent || a.ended) return;
+        this.systemPauseCallback?.();
+      });
     }
     return this.audio;
   }
@@ -242,6 +256,7 @@ export class MseEngine implements PlaybackEngine {
     if (!audio || !this._hasCurrent) return;
     // Un rechazo (autoplay/background) se notifica para que la UI quede en
     // pausa honesta en vez de "reproduciendo" muda.
+    this._intentionallyPaused = false;
     void audio.play().catch(() => this.playBlockedCallback?.());
     this.startTracking();
     this.resumeDeferredFlush();
@@ -250,9 +265,10 @@ export class MseEngine implements PlaybackEngine {
   resume(): void {
     const audio = this.audio;
     if (!audio || !this._hasCurrent) return;
-    void audio.play().catch(() => {
-      /* sin gesto válido; se reintenta al tocar ▶ */
-    });
+    this._intentionallyPaused = false;
+    // Gemelo del motor clásico: un rechazo se enruta a playBlockedCallback
+    // (pausa honesta) en vez de tragarse en silencio.
+    void audio.play().catch(() => this.playBlockedCallback?.());
     this.startTracking();
     this.resumeDeferredFlush();
   }
@@ -269,6 +285,7 @@ export class MseEngine implements PlaybackEngine {
   }
 
   pause(): void {
+    this._intentionallyPaused = true;
     this.audio?.pause();
     cancelAnimationFrame(this._rafId);
   }
@@ -460,6 +477,7 @@ export class MseEngine implements PlaybackEngine {
   /** Derriba el stream sin disparar callbacks (equivale al fullStop clásico). */
   private teardownStream(): void {
     cancelAnimationFrame(this._rafId);
+    this._intentionallyPaused = true;
     this._hasCurrent = false;
     this._endFired = false;
     this._removing = false;
@@ -544,6 +562,8 @@ export class MseEngine implements PlaybackEngine {
     this.errorCallback = null;
     this.chunkStartCallback = null;
     this.playBlockedCallback = null;
+    this.systemPauseCallback = null;
+    this._intentionallyPaused = true;
     this.audio = null;
   }
 
@@ -565,6 +585,14 @@ export class MseEngine implements PlaybackEngine {
 
   setPlayBlockedCallback(cb: PlayBlockedCallback): void {
     this.playBlockedCallback = cb;
+  }
+
+  setSystemPauseCallback(cb: SystemPauseCallback): void {
+    this.systemPauseCallback = cb;
+  }
+
+  isPlayingAudio(): boolean {
+    return !!this.audio && !this.audio.paused && !this.audio.ended && this._hasCurrent;
   }
 
   // ── Progreso (fronteras + fin) — llamado desde timeupdate Y desde el rAF ──

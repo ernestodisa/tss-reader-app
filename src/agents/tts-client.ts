@@ -295,7 +295,9 @@ async function fetchTTSFromNetwork(
     // ni se llena la capa putAudio del cache-store — nadie la lee.)
     await rawAudioCache.put(`raw:${chunk.id}`, { audio, durationMs } as RawAudioEntry, RAW_TTL);
 
-    // Store word timings
+    // Store word timings. Se cachean CRUDAS (wordIndex = ordinal del array que
+    // manda el worker): el cache-hit ya realinea (alignTimings arriba) y así se
+    // preserva la información original sin pérdida por realineamientos sucesivos.
     await useCacheStore.getState().putTimings(chunk.id, words);
 
     return {
@@ -304,7 +306,10 @@ async function fetchTTSFromNetwork(
         chunkId: chunk.id,
         audio,
         format: 'mp3',
-        words,
+        // Al caller se devuelven ALINEADAS al token fuente (K2): el motor emite
+        // timings[i].wordIndex y el karaoke indexa por tokens \S+ del párrafo;
+        // con las crudas el karaoke se desalineaba en cache frío.
+        words: alignTimings(chunk.text, words),
         durationMs,
       },
     };

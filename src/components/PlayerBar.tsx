@@ -16,6 +16,38 @@ import '../styles/player.css';
 // Alturas de las 10 barras decorativas del waveform (spec §Player flotante).
 const WAVE_BARS = [14, 22, 10, 26, 18, 28, 12, 24, 16, 20];
 
+// ── Pre-calentado (warm) con concurrencia GLOBAL ────────────────────────
+// Cola + contador a nivel de MÓDULO (sobreviven re-renders y son únicos en
+// toda la app): como máximo WARM_CONCURRENCY fetches de warm simultáneos en
+// total, no por invocación de warmRemaining. Antes cada llamada lanzaba su
+// propio pool de 3 workers, así que dos pools solapados (arranque de párrafo
+// + queueUpcoming + cruce de párrafo) llegaban a 6-9 POSTs concurrentes que
+// competían por la red contra el fetch CRÍTICO del siguiente chunk — y en la
+// frontera de chunk ese retraso dejaba un hueco de silencio donde iOS
+// suspende el JS y mata la reproducción en background. Con el dedupe
+// in-flight de fetchTTS (M16), un chunk ya en vuelo se comparte sin doble POST.
+const WARM_CONCURRENCY = 3;
+let warmInflight = 0;
+const warmQueue: Array<() => Promise<void>> = [];
+
+/** Arranca jobs de la cola mientras haya slots libres. Se llama al encolar y
+ *  al liberarse un slot (así la cola siempre drena). */
+function pumpWarm(): void {
+  while (warmInflight < WARM_CONCURRENCY && warmQueue.length > 0) {
+    const job = warmQueue.shift()!;
+    warmInflight += 1;
+    void job().finally(() => {
+      warmInflight -= 1;
+      pumpWarm();
+    });
+  }
+}
+
+function scheduleWarmJob(job: () => Promise<void>): void {
+  warmQueue.push(job);
+  pumpWarm();
+}
+
 interface PlayerBarProps {
   doc: ExtractedDoc;
 }
@@ -192,8 +224,24 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     const chunk = chain.chunks[chain.nextIndex];
     if (!chunk) return;
 
-    const ttsResult = await fetchChunkWithRetry(chunk, chain.gen);
-    if (usePlaybackStore.getState().generationId !== chain.gen) {
+    // C1: cuenta este fetch como "en vuelo" (mismo contrato A5 que
+    // queueUpcoming): sin él, el watchdog de regreso a foreground no veía este
+    // camino (endCallback → playChunkFromChain) y podía lanzar una RECARGA que
+    // competía con este fetch — al resolver, el load()+play() de abajo pisaba
+    // lo que la cadena nueva ya estaba sonando (audio duplicado/saltado).
+    markExpecting(1);
+    let ttsResult: Awaited<ReturnType<typeof fetchChunkWithRetry>>;
+    try {
+      ttsResult = await fetchChunkWithRetry(chunk, chain.gen);
+    } finally {
+      markExpecting(-1);
+    }
+    // C2: gate de IDENTIDAD de chain además del de generación. El watchdog (o
+    // cualquier recarga) pudo reemplazar chainRef por una chain NUEVA con la
+    // MISMA generación mientras este fetch estaba en vuelo (iOS congela el JS
+    // en el hueco de silencio y la gen no cambia): sin este guard, este load()
+    // pisaría la reproducción de la cadena nueva.
+    if (usePlaybackStore.getState().generationId !== chain.gen || chainRef.current !== chain) {
       setBuffering(false);
       return;
     }
@@ -271,22 +319,25 @@ export function PlayerBar({ doc }: PlayerBarProps) {
   //
   // Auditoría GPT-5.6 Luna (hallazgos corregidos):
   //  • ALTO: NO disparar TODOS los chunks en paralelo (ráfaga 429). Se limita
-  //    la concurrencia a WARM_CONCURRENCY POSTs simultáneos.
+  //    la concurrencia a WARM_CONCURRENCY POSTs simultáneos — ahora con límite
+  //    GLOBAL en cola module-level (scheduleWarmJob), no 3 por invocación:
+  //    pools solapados (arranque + queueUpcoming + cruce) competían por la red
+  //    contra el fetch crítico del siguiente chunk, y el hueco resultante en
+  //    la frontera de chunk mataba la reproducción en background de iOS.
   //  • MEDIO: NO escribir setParagraphTiming aquí — timingsByParagraph tiene
   //    un solo slot por párrafo y una finalización fuera de orden sobrescribiría
   //    los timings del chunk EN reproducción. El estado 'ready' lo escribe solo
   //    el chunk realmente cargado (playChunkFromChain/chunkStartCallback).
   //  • BAJO: warmCount solo cuenta éxitos (los fallos/429 no inflan el diag).
-  const WARM_CONCURRENCY = 3;
   const warmRemaining = (chain: ChunkChain, fromIndex: number): void => {
-    const jobs: TTSChunk[] = [];
-    for (let i = fromIndex; i < chain.chunks.length; i++) jobs.push(chain.chunks[i]);
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      while (cursor < jobs.length) {
-        const i = cursor;
-        cursor += 1;
-        const chunk = jobs[i];
+    for (let i = fromIndex; i < chain.chunks.length; i++) {
+      const chunk = chain.chunks[i];
+      scheduleWarmJob(async () => {
+        // Gate pre-fetch: si la generación quedó obsoleta mientras el job
+        // esperaba en la cola, no gastar red en trabajo muerto. (No se gatea
+        // por chainRef: en el cruce de párrafo la chain aún vive en
+        // pendingNextChainRef hasta que el chunkStart la activa.)
+        if (usePlaybackStore.getState().generationId !== chain.gen) return;
         try {
           const r = await fetchTTS(chunk);
           if (
@@ -299,11 +350,8 @@ export function PlayerBar({ doc }: PlayerBarProps) {
         } catch {
           // Err del warm es best-effort; el path real reintenta con backoff.
         }
-      }
-    };
-    // Lanza un pool de WARM_CONCURRENCY workers concurrentes (no más).
-    const n = Math.min(WARM_CONCURRENCY, jobs.length);
-    for (let w = 0; w < n; w++) void worker();
+      });
+    }
   };
 
   const queueUpcoming = async (chain: ChunkChain): Promise<void> => {
@@ -624,6 +672,55 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     return () => clearMediaSession();
   }, []);
 
+  // ── Watchdog de regreso a foreground (background iOS) ────────────────────
+  // En iOS la página vive solo mientras el <audio> suena: si en una frontera
+  // de chunk no había pre-encolado listo, el hueco de silencio permite a iOS
+  // congelar el JS y la cadena muere con el store en isPlaying=true. Al volver
+  // a visible, si el motor está muerto y NO hay fetch en vuelo que la reanude
+  // solo (expectingMoreRef), retomamos desde el chunk donde murió — mismo
+  // criterio de continuación que el resume de handlePlayPause.
+  useEffect(() => {
+    if (!doc) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const recover = () => {
+      if (document.visibilityState !== 'visible') return;
+      // Delay corto: los callbacks de red que iOS congeló se procesan al
+      // despertar; si alguno reanuda solo, este chequeo lo ve y no interviene.
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const st = usePlaybackStore.getState();
+        if (!st.isPlaying || st.isBuffering) return;
+        if (playerAgent.isPlayingAudio()) return;
+        if (expectingMoreRef.current > 0) return; // fetch vivo: él reanuda
+        const chain = chainRef.current;
+        if (playerAgent.getCurrentPositionMs() > 0 && chain && chain.gen === st.generationId) {
+          playerAgent.resume();
+          return;
+        }
+        // Motor muerto sin posición: la cadena murió en la FRONTERA (el chunk
+        // anterior terminó de sonar y su fetch del siguiente quedó congelado),
+        // así que `chain.nextIndex` ya apunta al chunk PENDIENTE — retomar
+        // exactamente ahí (NO nextIndex-1: ese ya se escuchó completo; el
+        // incremento ocurre post-fetch y aquí el fetch nunca aterrizó).
+        const chapter = doc.chapters[st.chapterIndex];
+        const paragraph = chapter?.paragraphs[st.paragraphIndex];
+        if (!paragraph) return;
+        const startChunk =
+          chain && chain.paragraph.id === paragraph.id && chain.gen === st.generationId
+            ? chain.nextIndex
+            : 0;
+        void loadAndPlayParagraph(paragraph, st.voiceId, st.speed, st.generationId, startChunk);
+      }, 600);
+    };
+    document.addEventListener('visibilitychange', recover);
+    window.addEventListener('focus', recover);
+    return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', recover);
+      window.removeEventListener('focus', recover);
+    };
+  }, [doc]);
+
   // Barra espaciadora = play/pause (solo desktop y con libro abierto).
   // Referencia al último handlePlayPause para no re-registrar el listener en
   // cada render (el efecto depende solo de `doc`).
@@ -733,6 +830,18 @@ export function PlayerBar({ doc }: PlayerBarProps) {
     playerAgent.setPlayBlockedCallback(() => {
       usePlaybackStore.getState().pause();
       setPlayBlocked(true);
+    });
+
+    // Interrupción del SISTEMA (llamada entrante, Siri, otra app tomó el
+    // audio): iOS pausa el <audio> por fuera mientras el store cree que
+    // seguimos sonando. Intento único de reanudar DENTRO del evento — la
+    // sesión 'playback' sigue activa unos segundos tras la interrupción y el
+    // elemento ya estaba desbloqueado, así que suele colar. Si lo rechaza,
+    // resume() enruta a playBlockedCallback → pausa honesta (el watchdog de
+    // visibilitychange retoma al volver a la app).
+    playerAgent.setSystemPauseCallback(() => {
+      if (!usePlaybackStore.getState().isPlaying) return;
+      playerAgent.resume();
     });
 
     playerAgent.setErrorCallback(() => {
