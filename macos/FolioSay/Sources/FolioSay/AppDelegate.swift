@@ -12,6 +12,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotKeyFailed = false
     /// Vuelve el ícono a idle tras un error; se cancela si algo nuevo pasa.
     private var errorResetTask: Task<Void, Never>?
+    /// Panel de karaoke. Se crea perezosamente en el primer tick de progreso
+    /// para no pagar la ventana si el usuario nunca lee nada.
+    private var karaoke: KaraokePanel?
+    /// `object(forKey:)` en vez de `bool(forKey:)`: éste último devuelve false
+    /// cuando la clave no existe y no podríamos distinguir "apagado" de
+    /// "nunca configurado". El default es ON.
+    private var karaokeEnabled = UserDefaults.standard.object(forKey: "karaokeEnabled") as? Bool ?? true
 
     private let speeds: [Double] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
     /// Orden fijo (Config.voiceAliases es un dict, sin orden estable).
@@ -36,6 +43,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // El Player ya publica en main, pero el contrato de NSStatusItem es
             // explícito: nos aseguramos igual.
             Task { @MainActor in self?.render(state: state) }
+        }
+
+        player.onProgress = { [weak self] index, text, fraction in
+            // El Player ya emite en main (10×/s); esto es solo pintar.
+            guard let self, self.karaokeEnabled else { return }
+            let panel = self.karaoke ?? KaraokePanel()
+            self.karaoke = panel
+            // showNear() antes de update(): así el primer render ya cae en la
+            // posición buena y no se ve el panel brincar.
+            if !panel.isVisible { panel.showNear() }
+            panel.update(chunkIndex: index, text: text, fraction: fraction)
         }
 
         hotKey = HotKey { [weak self] in
@@ -105,6 +123,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         player.setSpeed(speed) // persiste en Config y ajusta el rate en vivo
     }
 
+    @objc private func toggleKaraoke() {
+        karaokeEnabled.toggle()
+        UserDefaults.standard.set(karaokeEnabled, forKey: "karaokeEnabled")
+        // Apagarlo a media lectura debe surtir efecto ya: onProgress deja de
+        // pintar, pero el panel que está en pantalla hay que bajarlo a mano.
+        if !karaokeEnabled { karaoke?.hide() }
+    }
+
     @objc private func quit() {
         player.stop()
         NSApp.terminate(nil)
@@ -114,6 +140,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func render(state: Player.State) {
         statusItem?.button?.image = icon(for: state)
+        // El panel no se destruye: se reutiliza entre lecturas para conservar
+        // la posición donde el usuario lo dejó. En .paused se deja VISIBLE con
+        // la última palabra congelada (no llegan más ticks de onProgress).
+        switch state {
+        case .idle, .error: karaoke?.hide()
+        default: break
+        }
         if case .error(let message) = state {
             statusItem?.button?.toolTip = message
             scheduleErrorReset()
@@ -178,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(voiceMenuItem(current: config.voice))
         menu.addItem(speedMenuItem(current: config.speed))
+        menu.addItem(karaokeMenuItem())
 
         menu.addItem(.separator())
         add(to: menu, title: "Leer portapapeles", action: #selector(readClipboard))
@@ -224,6 +258,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let parent = NSMenuItem(title: "Voz", action: nil, keyEquivalent: "")
         parent.submenu = submenu
         return parent
+    }
+
+    private func karaokeMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Karaoke", action: #selector(toggleKaraoke), keyEquivalent: "")
+        item.target = self
+        item.state = karaokeEnabled ? .on : .off
+        return item
     }
 
     private func speedMenuItem(current: Double) -> NSMenuItem {

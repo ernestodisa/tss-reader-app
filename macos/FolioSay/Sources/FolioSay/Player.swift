@@ -16,6 +16,14 @@ final class Player: NSObject {
 
     var onStateChange: ((State) -> Void)?
 
+    /// Progreso fino para el karaoke: (índice de chunk 0-based, texto del
+    /// chunk, fracción 0–1 dentro del chunk). Se emite ~10×/s mientras suena.
+    /// La fracción sale de currentTime/duration del AVPlayerItem — el backend
+    /// no manda marcas por palabra, así que la palabra actual se ESTIMA
+    /// repartiendo el tiempo proporcional al largo de cada palabra (mismo
+    /// espíritu que la PWA; suficiente para seguir la voz, no para doblaje).
+    var onProgress: ((Int, String, Double) -> Void)?
+
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
     }
@@ -32,6 +40,9 @@ final class Player: NSObject {
     private var downloadFinished = false
     private var tempFiles: [URL] = []
     private var endObserver: NSObjectProtocol?
+    private var timeObserver: Any?
+    /// Texto de cada chunk del plan en curso (para el karaoke).
+    private var chunkTexts: [String] = []
 
     private let stateDir = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".cache/folio-say")
@@ -76,6 +87,7 @@ final class Player: NSObject {
         }
 
         totalChunks = chunks.count
+        chunkTexts = chunks.map(\.text)
         enqueuedCount = 0
         downloadFinished = false
         state = .loading
@@ -84,6 +96,7 @@ final class Player: NSObject {
         player.actionAtItemEnd = .advance
         queuePlayer = player
         observeEnd(of: player)
+        observeProgress(of: player)
 
         let client = TTSClient(config: config)
         downloadTask = Task { [weak self] in
@@ -121,6 +134,9 @@ final class Player: NSObject {
         downloadTask = nil
         if let obs = endObserver { NotificationCenter.default.removeObserver(obs) }
         endObserver = nil
+        if let timeObserver { queuePlayer?.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        chunkTexts = []
         queuePlayer?.pause()
         queuePlayer?.removeAllItems()
         queuePlayer = nil
@@ -181,6 +197,25 @@ final class Player: NSObject {
     private func currentQueuedIndex(in player: AVQueuePlayer) -> Int {
         guard let first = player.items().first, let idx = itemIndex[ObjectIdentifier(first)] else { return 0 }
         return idx
+    }
+
+    private func observeProgress(of player: AVQueuePlayer) {
+        // 10 Hz basta para karaoke por palabra y no calienta el CPU. El
+        // observer se cuelga del player de ESTA lectura y muere con él en stop().
+        let interval = CMTime(value: 1, timescale: 10)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            Task { @MainActor in
+                guard let self, let player = self.queuePlayer,
+                      case .playing = self.state,
+                      let item = player.currentItem,
+                      let index = self.itemIndex[ObjectIdentifier(item)],
+                      index < self.chunkTexts.count else { return }
+                let duration = item.duration.seconds
+                guard duration.isFinite, duration > 0 else { return }
+                let fraction = min(1, max(0, time.seconds / duration))
+                self.onProgress?(index, self.chunkTexts[index], fraction)
+            }
+        }
     }
 
     private func observeEnd(of player: AVQueuePlayer) {
