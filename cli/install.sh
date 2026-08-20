@@ -131,7 +131,11 @@ SERVICE_NAME_XML="$(xml_escape "$SERVICE_NAME")"
 # El script que Automator ejecuta: ruta CITADA + "$@" para el modo argumentos.
 # Sin argumentos (modo stdin) queda `'/ruta/folio-say' --`, y el `--` protege al
 # texto que empiece con guion de ser leído como opción.
-COMMAND_STRING_XML="$(xml_escape "$(shell_quote "$WRAPPER") -- \"\$@\"")"
+# stderr → service.log: un Quick Action que falla no muestra NADA al usuario
+# (aprendido en campo: "no arranca" sin pista alguna) — con el log, el
+# diagnóstico es leer ~/.cache/folio-say/service.log.
+SERVICE_LOG="$HOME/.cache/folio-say/service.log"
+COMMAND_STRING_XML="$(xml_escape "mkdir -p $(shell_quote "$(dirname "$SERVICE_LOG")"); { echo \"== \$(date '+%F %T') servicio invocado (args=\$#)\"; $(shell_quote "$WRAPPER") -- \"\$@\"; echo \"== exit=\$?\"; } >> $(shell_quote "$SERVICE_LOG") 2>&1")"
 
 cat > "$SERVICE_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
